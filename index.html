@@ -3,16 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vision Pro AR - Crash Fixed</title>
+    <title>Vision Pro AR - Fixed</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; }
         
-        /* 캔버스로 카메라 영상 및 AR 렌더링을 통합 출력 */
         #render-canvas {
             width: 100vw; height: 100vh;
-            position: absolute; top: 0; left: 0;
-            z-index: 1;
+            position: absolute; top: 0; left: 0; z-index: 1;
         }
 
         #start-btn {
@@ -22,11 +20,9 @@
             box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
         }
 
-        /* 숨겨진 단일 카메라 비디오 태그 (중복 연결로 인한 튕김 방지) */
         #webcam-single { display: none; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
@@ -36,7 +32,7 @@
     <canvas id="render-canvas"></canvas>
 
     <script>
-        let scene, camera, renderer, videoTexture;
+        let scene, camera, renderer, hands;
         const joints = [];
         let skeletonLines = [];
         const appIcons = [];
@@ -77,8 +73,9 @@
                 }
             } catch (e) {}
 
-            await initCamera();
             initThree();
+            initMediaPipe();
+            await initCamera();
             render();
         }
 
@@ -87,16 +84,14 @@
             camera = new THREE.PerspectiveCamera(75, (window.innerWidth / 2) / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 0, 5);
 
-            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
 
-            // 카메라 실시간 영상 텍스처 배경으로 설정
-            videoTexture = new THREE.VideoTexture(videoSingle);
+            const videoTexture = new THREE.VideoTexture(videoSingle);
             scene.background = videoTexture;
 
             createAppGrid();
 
-            // 21개 손 관절 및 선 객체
             const jointGeo = new THREE.SphereGeometry(0.06, 12, 12);
             const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
@@ -148,19 +143,25 @@
 
         function render() {
             requestAnimationFrame(render);
+
+            // 프레임마다 손 인식 루프 수행
+            if (videoSingle.readyState >= 2) {
+                hands.send({ image: videoSingle });
+            }
+
             const w = window.innerWidth;
             const h = window.innerHeight;
 
             renderer.setScissorTest(true);
 
-            // 좌측 눈 (VR)
+            // 좌측 눈
             renderer.setViewport(0, 0, w / 2, h);
             renderer.setScissor(0, 0, w / 2, h);
             camera.aspect = (w / 2) / h;
             camera.updateProjectionMatrix();
             renderer.render(scene, camera);
 
-            // 우측 눈 (VR)
+            // 우측 눈
             renderer.setViewport(w / 2, 0, w / 2, h);
             renderer.setScissor(w / 2, 0, w / 2, h);
             renderer.render(scene, camera);
@@ -216,15 +217,8 @@
             }
         }
 
-        async function initCamera() {
-            // 단일 카메라 스트림 할당 (충돌 방지)
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-            });
-
-            videoSingle.srcObject = stream;
-
-            const hands = new Hands({
+        function initMediaPipe() {
+            hands = new Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
 
@@ -236,16 +230,16 @@
             });
 
             hands.onResults(onHandResults);
+        }
 
-            const cameraUtils = new Camera(videoSingle, {
-                onFrame: async () => {
-                    await hands.send({ image: videoSingle });
-                },
-                width: 640,
-                height: 480
+        async function initCamera() {
+            // 외부 백그라운드 앱이 카메라를 점유 중일 수 있으므로 단일 스트림 요청
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
             });
 
-            cameraUtils.start();
+            videoSingle.srcObject = stream;
+            await videoSingle.play();
         }
     </script>
 </body>
