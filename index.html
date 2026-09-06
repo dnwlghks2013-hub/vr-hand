@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smartphone VisionOS - Drag & Drop</title>
+    <title>Smartphone VisionOS - Passthrough</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -21,7 +21,7 @@
 <body>
 
     <button id="vr-btn" onclick="toggleVR()">VR 모드 분할 화면 전환</button>
-    <video id="webcam" playsinline></video>
+    <video id="webcam" playsinline autoplay></video>
 
     <script>
         let scene, cameraLeft, cameraRight, renderer;
@@ -29,9 +29,8 @@
         let windows = [];
         let cursor;
         let pinchDetected = false;
-        let grabbedWindow = null; // 현재 손으로 잡고 있는 3D 창 객체
+        let grabbedWindow = null;
 
-        // 1. Three.js 3D 공간 초기화
         function initScene() {
             scene = new THREE.Scene();
 
@@ -46,15 +45,16 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
 
-            const light = new THREE.AmbientLight(0xffffff, 0.9);
+            const light = new THREE.AmbientLight(0xffffff, 1.2);
             scene.add(light);
 
-            // 배치할 공간 창
+            // 카메라 텍스처를 배경으로 설정 (Passthrough)
+            setupVideoBackground();
+
             createVisionWindow(-1.0, 0, -2, 0x3366ff);
             createVisionWindow(0, 0, -2, 0xffffff);
             createVisionWindow(1.0, 0, -2, 0x33cc66);
 
-            // 손 위치 조준점 커서
             const cursorGeo = new THREE.RingGeometry(0.02, 0.03, 32);
             const cursorMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
             cursor = new THREE.Mesh(cursorGeo, cursorMat);
@@ -62,14 +62,31 @@
             scene.add(cursor);
         }
 
-        // 2. VisionOS 스타일 유리 창 생성
+        // 후면 카메라 비디오를 3D 배경 텍스처로 로드
+        function setupVideoBackground() {
+            const video = document.getElementById('webcam');
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: { exact: "environment" } } // 후면 카메라 우선 지정
+            }).then(stream => {
+                video.srcObject = stream;
+                const videoTexture = new THREE.VideoTexture(video);
+                scene.background = videoTexture; // 카메라 영상을 배경으로 적용
+            }).catch(err => {
+                // 후면 카메라 지원 안될 시 일반 카메라로 대체
+                navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+                    video.srcObject = stream;
+                    scene.background = new THREE.VideoTexture(video);
+                });
+            });
+        }
+
         function createVisionWindow(x, y, z, color) {
             const geometry = new THREE.PlaneGeometry(0.8, 0.55);
             const material = new THREE.MeshPhongMaterial({
                 color: color,
                 transparent: true,
-                opacity: 0.45,
-                shininess: 80,
+                opacity: 0.5,
+                shininess: 90,
                 side: THREE.DoubleSide
             });
             const mesh = new THREE.Mesh(geometry, material);
@@ -78,7 +95,6 @@
             windows.push(mesh);
         }
 
-        // 3. MediaPipe 손 트래킹
         function initHandTracking() {
             const videoElement = document.getElementById('webcam');
             const hands = new Hands({
@@ -101,76 +117,64 @@
             cameraUtils.start();
         }
 
-        // 4. 위치 이동 및 드래그 앤 드롭 제어
         function onHandResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
                 
-                // 검지 손가락 끝(8번) 좌표 매핑
                 const indexX = (landmarks[8].x - 0.5) * -2.5;
                 const indexY = (0.5 - landmarks[8].y) * 2.0;
                 cursor.position.set(indexX, indexY, -1.2);
 
-                // 엄지(4번)와 검지(8번) 사이 거리 (핀치 감지)
                 const distance = Math.hypot(
                     landmarks[4].x - landmarks[8].x,
                     landmarks[4].y - landmarks[8].y
                 );
 
-                // 핀치 지속 중일 때 (Pinch Down)
                 if (distance < 0.05) {
                     if (!pinchDetected) {
                         pinchDetected = true;
                         cursor.scale.set(0.6, 0.6, 0.6);
-                        startDrag(); // 드래그 시작 시도
+                        startDrag();
                     }
 
-                    // 창을 집은 상태면 손가락 위치 따라 창 이동
                     if (grabbedWindow) {
                         grabbedWindow.position.x = cursor.position.x;
                         grabbedWindow.position.y = cursor.position.y;
                     }
-                } 
-                // 핀치 해제 시 (Pinch Up)
-                else {
+                } else {
                     if (pinchDetected) {
                         pinchDetected = false;
                         cursor.scale.set(1, 1, 1);
-                        stopDrag(); // 드래그 종료 및 창 놓기
+                        stopDrag();
                     }
                 }
             }
         }
 
-        // 5. 창 잡기 로직
         function startDrag() {
             windows.forEach(win => {
-                // 커서 위치와 근접한 창 탐색
                 if (Math.abs(win.position.x - cursor.position.x) < 0.45 &&
                     Math.abs(win.position.y - cursor.position.y) < 0.35) {
                     grabbedWindow = win;
-                    grabbedWindow.position.z = -1.8; // 집어 올릴 때 앞으로 살짝 당겨짐
-                    grabbedWindow.material.opacity = 0.7; // 시각적 피드백
+                    grabbedWindow.position.z = -1.8;
+                    grabbedWindow.material.opacity = 0.75;
                 }
             });
         }
 
-        // 6. 창 놓기 로직
         function stopDrag() {
             if (grabbedWindow) {
-                grabbedWindow.position.z = -2.0; // 본래 깊이로 돌려놓음
-                grabbedWindow.material.opacity = 0.45;
+                grabbedWindow.position.z = -2.0;
+                grabbedWindow.material.opacity = 0.5;
                 grabbedWindow = null;
             }
         }
 
-        // 7. VR 화면 분할
         function toggleVR() {
             isVR = !isVR;
             document.getElementById('vr-btn').style.display = isVR ? 'none' : 'block';
         }
 
-        // 8. 렌더링 루프
         function animate() {
             requestAnimationFrame(animate);
 
@@ -180,12 +184,10 @@
 
                 renderer.setScissorTest(true);
 
-                // 좌측 눈
                 renderer.setScissor(0, 0, width / 2, height);
                 renderer.setViewport(0, 0, width / 2, height);
                 renderer.render(scene, cameraLeft);
 
-                // 우측 눈
                 renderer.setScissor(width / 2, 0, width / 2, height);
                 renderer.setViewport(width / 2, 0, width / 2, height);
                 renderer.render(scene, cameraRight);
