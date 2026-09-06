@@ -12,7 +12,6 @@
             position: fixed; top: 0; left: 0;
         }
         
-        /* 카메라 피드 레이어 (양쪽 눈 50% 분할) */
         .camera-container {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
@@ -24,10 +23,9 @@
         }
         .cam-view video {
             width: 100%; height: 100%;
-            object-fit: cover; /* 화면 여백 없이 가득 채움 */
+            object-fit: cover;
         }
 
-        /* Three.js 3D 그래픽 레이어 */
         #render-canvas {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
@@ -40,6 +38,14 @@
             color: #fff; background: #007aff; border: none; border-radius: 12px; cursor: pointer;
             box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
         }
+
+        /* 손 감지 상태 표시 태그 */
+        #status-tag {
+            position: absolute; top: 15px; left: 15px; z-index: 100;
+            background: rgba(0,0,0,0.7); color: #00ff00; font-weight: bold;
+            padding: 8px 16px; border-radius: 20px; font-size: 14px;
+            font-family: sans-serif; display: none;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -47,6 +53,7 @@
 <body>
 
     <button id="start-btn" onclick="startVisionAR()">비전프로 AR 실행</button>
+    <div id="status-tag">손 찾는 중...</div>
 
     <div class="camera-container">
         <div class="cam-view"><video id="v-left" autoplay playsinline muted></video></div>
@@ -68,6 +75,7 @@
         const videoRight = document.getElementById('v-right');
         const canvas = document.getElementById('render-canvas');
         const startBtn = document.getElementById('start-btn');
+        const statusTag = document.getElementById('status-tag');
 
         const HAND_CONNECTIONS = [
             [0,1], [1,2], [2,3], [3,4],
@@ -88,6 +96,7 @@
 
         async function startVisionAR() {
             startBtn.style.display = 'none';
+            statusTag.style.display = 'block';
 
             try {
                 if (document.documentElement.requestFullscreen) {
@@ -99,7 +108,6 @@
             initThree();
             initMediaPipe();
 
-            // 회전/크기 변경 시 즉시 재계산
             window.addEventListener('resize', updateLayout);
             window.addEventListener('orientationchange', () => setTimeout(updateLayout, 300));
 
@@ -111,7 +119,7 @@
             let stream = null;
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }
                 });
             } catch (e) {
                 stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -138,7 +146,7 @@
 
             createAppGrid();
 
-            const jointGeo = new THREE.SphereGeometry(0.06, 12, 12);
+            const jointGeo = new THREE.SphereGeometry(0.08, 12, 12);
             const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
             for (let i = 0; i < 21; i++) {
@@ -148,7 +156,7 @@
                 joints.push(joint);
             }
 
-            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 });
             HAND_CONNECTIONS.forEach(() => {
                 const geometry = new THREE.BufferGeometry();
                 geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
@@ -207,7 +215,7 @@
         function render() {
             requestAnimationFrame(render);
 
-            if (videoLeft.readyState >= 2) {
+            if (videoLeft.readyState >= 2 && hands) {
                 hands.send({ image: videoLeft });
             }
 
@@ -231,16 +239,19 @@
         }
 
         function checkIsFist(landmarks) {
-            const indexFolded = landmarks[8].y > landmarks[6].y;
-            const middleFolded = landmarks[12].y > landmarks[10].y;
-            const ringFolded = landmarks[16].y > landmarks[14].y;
-            const pinkyFolded = landmarks[20].y > landmarks[18].y;
+            // 손가락 끝 마디와 밑 마디 Y 좌표 비교
+            const indexFolded = landmarks[8].y > landmarks[5].y;
+            const middleFolded = landmarks[12].y > landmarks[9].y;
+            const ringFolded = landmarks[16].y > landmarks[13].y;
 
-            return indexFolded && middleFolded && ringFolded && pinkyFolded;
+            return indexFolded && middleFolded && ringFolded;
         }
 
         function onHandResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                statusTag.innerText = "손 인식됨!";
+                statusTag.style.color = "#00ff00";
+
                 const landmarks = results.multiHandLandmarks[0];
 
                 landmarks.forEach((lm, index) => {
@@ -273,6 +284,8 @@
                 lastFistState = isFist;
 
             } else {
+                statusTag.innerText = "손 찾는 중...";
+                statusTag.style.color = "#ffaa00";
                 joints.forEach(j => j.visible = false);
                 skeletonLines.forEach(l => l.visible = false);
             }
@@ -285,7 +298,7 @@
 
             hands.setOptions({
                 maxNumHands: 1,
-                modelComplexity: 1,
+                modelComplexity: 0, // 처리 속도 및 모바일 안정성을 위해 0으로 조정
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
