@@ -1,217 +1,38 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smartphone VisionOS - Passthrough</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
-        #webcam { display: none; }
-        #vr-btn {
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            padding: 12px 24px; background: rgba(255,255,255,0.2); color: white;
-            border: 1px solid rgba(255,255,255,0.5); border-radius: 30px;
-            backdrop-filter: blur(10px); font-size: 16px; cursor: pointer; z-index: 10;
-        }
-    </style>
-</head>
-<body>
+using UnityEngine;
 
-    <button id="vr-btn" onclick="toggleVR()">VR 모드 분할 화면 전환</button>
-    <video id="webcam" playsinline autoplay></video>
+public class VRHandDrawer : MonoBehaviour 
+{
+    public Transform indexTip; // 검지 손가락 끝 오브젝트
+    public GameObject linePrefab;
+    private LineRenderer currentLine;
 
-    <script>
-        let scene, cameraLeft, cameraRight, renderer;
-        let isVR = false;
-        let windows = [];
-        let cursor;
-        let pinchDetected = false;
-        let grabbedWindow = null;
-
-        function initScene() {
-            scene = new THREE.Scene();
-
-            cameraLeft = new THREE.PerspectiveCamera(75, (window.innerWidth / 2) / window.innerHeight, 0.1, 1000);
-            cameraRight = new THREE.PerspectiveCamera(75, (window.innerWidth / 2) / window.innerHeight, 0.1, 1000);
-            
-            cameraLeft.position.set(-0.03, 0, 0);
-            cameraRight.position.set(0.03, 0, 0);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
-            document.body.appendChild(renderer.domElement);
-
-            const light = new THREE.AmbientLight(0xffffff, 1.2);
-            scene.add(light);
-
-            // 카메라 텍스처를 배경으로 설정 (Passthrough)
-            setupVideoBackground();
-
-            createVisionWindow(-1.0, 0, -2, 0x3366ff);
-            createVisionWindow(0, 0, -2, 0xffffff);
-            createVisionWindow(1.0, 0, -2, 0x33cc66);
-
-            const cursorGeo = new THREE.RingGeometry(0.02, 0.03, 32);
-            const cursorMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
-            cursor = new THREE.Mesh(cursorGeo, cursorMat);
-            cursor.position.set(0, 0, -1.2);
-            scene.add(cursor);
-        }
-
-        // 후면 카메라 비디오를 3D 배경 텍스처로 로드
-        function setupVideoBackground() {
-            const video = document.getElementById('webcam');
-            navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: { exact: "environment" } } // 후면 카메라 우선 지정
-            }).then(stream => {
-                video.srcObject = stream;
-                const videoTexture = new THREE.VideoTexture(video);
-                scene.background = videoTexture; // 카메라 영상을 배경으로 적용
-            }).catch(err => {
-                // 후면 카메라 지원 안될 시 일반 카메라로 대체
-                navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-                    video.srcObject = stream;
-                    scene.background = new THREE.VideoTexture(video);
-                });
-            });
-        }
-
-        function createVisionWindow(x, y, z, color) {
-            const geometry = new THREE.PlaneGeometry(0.8, 0.55);
-            const material = new THREE.MeshPhongMaterial({
-                color: color,
-                transparent: true,
-                opacity: 0.5,
-                shininess: 90,
-                side: THREE.DoubleSide
-            });
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-            windows.push(mesh);
-        }
-
-        function initHandTracking() {
-            const videoElement = document.getElementById('webcam');
-            const hands = new Hands({
-                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-            });
-
-            hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-
-            hands.onResults(onHandResults);
-
-            const cameraUtils = new Camera(videoElement, {
-                onFrame: async () => { await hands.send({ image: videoElement }); },
-                width: 640, height: 480
-            });
-            cameraUtils.start();
-        }
-
-        function onHandResults(results) {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const landmarks = results.multiHandLandmarks[0];
-                
-                const indexX = (landmarks[8].x - 0.5) * -2.5;
-                const indexY = (0.5 - landmarks[8].y) * 2.0;
-                cursor.position.set(indexX, indexY, -1.2);
-
-                const distance = Math.hypot(
-                    landmarks[4].x - landmarks[8].x,
-                    landmarks[4].y - landmarks[8].y
-                );
-
-                if (distance < 0.05) {
-                    if (!pinchDetected) {
-                        pinchDetected = true;
-                        cursor.scale.set(0.6, 0.6, 0.6);
-                        startDrag();
-                    }
-
-                    if (grabbedWindow) {
-                        grabbedWindow.position.x = cursor.position.x;
-                        grabbedWindow.position.y = cursor.position.y;
-                    }
-                } else {
-                    if (pinchDetected) {
-                        pinchDetected = false;
-                        cursor.scale.set(1, 1, 1);
-                        stopDrag();
-                    }
-                }
+    void Update() 
+    {
+        // 손가락이 인식되고 그리기 상태일 때
+        if (IsPinching()) 
+        {
+            if (currentLine == null) 
+            {
+                GameObject lineObj = Instantiate(linePrefab);
+                currentLine = lineObj.GetComponent<LineRenderer>();
             }
+            AddPoint(indexTip.position);
+        } 
+        else 
+        {
+            currentLine = null;
         }
+    }
 
-        function startDrag() {
-            windows.forEach(win => {
-                if (Math.abs(win.position.x - cursor.position.x) < 0.45 &&
-                    Math.abs(win.position.y - cursor.position.y) < 0.35) {
-                    grabbedWindow = win;
-                    grabbedWindow.position.z = -1.8;
-                    grabbedWindow.material.opacity = 0.75;
-                }
-            });
-        }
+    void AddPoint(Vector3 position) 
+    {
+        currentLine.positionCount++;
+        currentLine.SetPosition(currentLine.positionCount - 1, position);
+    }
 
-        function stopDrag() {
-            if (grabbedWindow) {
-                grabbedWindow.position.z = -2.0;
-                grabbedWindow.material.opacity = 0.5;
-                grabbedWindow = null;
-            }
-        }
-
-        function toggleVR() {
-            isVR = !isVR;
-            document.getElementById('vr-btn').style.display = isVR ? 'none' : 'block';
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-
-            if (isVR) {
-                const width = window.innerWidth;
-                const height = window.innerHeight;
-
-                renderer.setScissorTest(true);
-
-                renderer.setScissor(0, 0, width / 2, height);
-                renderer.setViewport(0, 0, width / 2, height);
-                renderer.render(scene, cameraLeft);
-
-                renderer.setScissor(width / 2, 0, width / 2, height);
-                renderer.setViewport(width / 2, 0, width / 2, height);
-                renderer.render(scene, cameraRight);
-
-                renderer.setScissorTest(false);
-            } else {
-                renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
-                renderer.render(scene, cameraLeft);
-            }
-        }
-
-        window.onload = () => {
-            initScene();
-            initHandTracking();
-            animate();
-        };
-
-        window.addEventListener('resize', () => {
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            cameraLeft.aspect = (window.innerWidth / 2) / window.innerHeight;
-            cameraRight.aspect = (window.innerWidth / 2) / window.innerHeight;
-            cameraLeft.updateProjectionMatrix();
-            cameraRight.updateProjectionMatrix();
-        });
-    </script>
-</body>
-</html>
+    bool IsPinching() 
+    {
+        // 엄지와 검지 끝 사이의 거리가 일정 값 이하인지 확인
+        return false; 
+    }
+}
