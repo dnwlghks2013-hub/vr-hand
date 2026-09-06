@@ -39,7 +39,6 @@
             box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
         }
 
-        /* 손 감지 상태 표시 태그 */
         #status-tag {
             position: absolute; top: 15px; left: 15px; z-index: 100;
             background: rgba(0,0,0,0.7); color: #00ff00; font-weight: bold;
@@ -70,6 +69,7 @@
         
         let isAppVisible = false;
         let lastFistState = false;
+        let isProcessing = false;
 
         const videoLeft = document.getElementById('v-left');
         const videoRight = document.getElementById('v-right');
@@ -212,11 +212,13 @@
             });
         }
 
-        function render() {
+        async function render() {
             requestAnimationFrame(render);
 
-            if (videoLeft.readyState >= 2 && hands) {
-                hands.send({ image: videoLeft });
+            if (videoLeft.readyState >= 2 && hands && !isProcessing) {
+                isProcessing = true;
+                await hands.send({ image: videoLeft });
+                isProcessing = false;
             }
 
             const w = window.innerWidth;
@@ -238,13 +240,17 @@
             renderer.setScissorTest(false);
         }
 
+        // 거리 기반 유클리드 정밀 주먹 감지 알고리즘
         function checkIsFist(landmarks) {
-            // 손가락 끝 마디와 밑 마디 Y 좌표 비교
-            const indexFolded = landmarks[8].y > landmarks[5].y;
-            const middleFolded = landmarks[12].y > landmarks[9].y;
-            const ringFolded = landmarks[16].y > landmarks[13].y;
+            const wrist = landmarks[0];
+            
+            const distIndex = Math.hypot(landmarks[8].x - wrist.x, landmarks[8].y - wrist.y);
+            const distMiddle = Math.hypot(landmarks[12].x - wrist.x, landmarks[12].y - wrist.y);
+            const distRing = Math.hypot(landmarks[16].x - wrist.x, landmarks[16].y - wrist.y);
 
-            return indexFolded && middleFolded && ringFolded;
+            const baseIndex = Math.hypot(landmarks[5].x - wrist.x, landmarks[5].y - wrist.y);
+
+            return (distIndex < baseIndex * 1.2) && (distMiddle < baseIndex * 1.2) && (distRing < baseIndex * 1.2);
         }
 
         function onHandResults(results) {
@@ -298,7 +304,7 @@
 
             hands.setOptions({
                 maxNumHands: 1,
-                modelComplexity: 0, // 처리 속도 및 모바일 안정성을 위해 0으로 조정
+                modelComplexity: 1,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
