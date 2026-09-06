@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vision Pro AR</title>
+    <title>Vision Pro AR System</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
             width: 100%; height: 100%;
             overflow: hidden; background: #000;
             position: fixed; top: 0; left: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
         
         .camera-container {
@@ -31,6 +32,51 @@
             width: 100vw; height: 100vh;
             z-index: 2; pointer-events: none;
         }
+
+        /* AR 2D/3D 웹 브라우저 UI 레이어 */
+        #web-window {
+            position: absolute; top: 10%; left: 15%;
+            width: 70vw; height: 50vh;
+            background: rgba(20, 20, 20, 0.85);
+            border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(20px);
+            z-index: 10; display: none; flex-direction: column;
+            overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+        #web-header {
+            height: 40px; background: rgba(255,255,255,0.05);
+            display: flex; align-items: center; padding: 0 16px; justify-content: space-between;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        #web-title { color: #fff; font-size: 14px; font-weight: 500; }
+        #close-btn {
+            background: #ff3b30; color: #fff; border: none; width: 18px; height: 18px;
+            border-radius: 50%; font-size: 10px; cursor: pointer; display: flex;
+            align-items: center; justify-content: center;
+        }
+        #web-frame {
+            width: 100%; height: calc(100% - 40px); border: none; background: #fff;
+        }
+
+        /* 3D 가상 키보드 UI */
+        #virtual-keyboard {
+            position: absolute; bottom: 8%; left: 20%;
+            width: 60vw; height: 28vh;
+            background: rgba(30, 30, 30, 0.9);
+            border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(25px);
+            z-index: 11; display: none; flex-direction: column;
+            padding: 12px; gap: 8px; box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+        }
+        .kb-row { display: flex; width: 100%; height: 23%; gap: 6px; }
+        .kb-key {
+            flex: 1; background: rgba(255,255,255,0.15); border-radius: 8px;
+            color: #fff; display: flex; align-items: center; justify-content: center;
+            font-size: 16px; font-weight: 500; user-select: none;
+            transition: background 0.1s;
+        }
+        .kb-key.active { background: #007aff; }
+        .kb-key.space { flex: 4; }
 
         #start-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -59,13 +105,41 @@
         <div class="cam-view"><video id="v-right" autoplay playsinline muted></video></div>
     </div>
 
+    <!-- 브라우저 창 -->
+    <div id="web-window">
+        <div id="web-header">
+            <span id="web-title">Vision OS Browser</span>
+            <button id="close-btn" onclick="closeApp()">✕</button>
+        </div>
+        <iframe id="web-frame" src="about:blank"></iframe>
+    </div>
+
+    <!-- 가상 키보드 -->
+    <div id="virtual-keyboard">
+        <div class="kb-row">
+            <div class="kb-key">Q</div><div class="kb-key">W</div><div class="kb-key">E</div><div class="kb-key">R</div><div class="kb-key">T</div><div class="kb-key">Y</div><div class="kb-key">U</div><div class="kb-key">I</div><div class="kb-key">O</div><div class="kb-key">P</div>
+        </div>
+        <div class="kb-row">
+            <div class="kb-key">A</div><div class="kb-key">S</div><div class="kb-key">D</div><div class="kb-key">F</div><div class="kb-key">G</div><div class="kb-key">H</div><div class="kb-key">J</div><div class="kb-key">K</div><div class="kb-key">L</div>
+        </div>
+        <div class="kb-row">
+            <div class="kb-key">Z</div><div class="kb-key">X</div><div class="kb-key">C</div><div class="kb-key">V</div><div class="kb-key">B</div><div class="kb-key">N</div><div class="kb-key">M</div>
+        </div>
+        <div class="kb-row">
+            <div class="kb-key space">Space</div>
+            <div class="kb-key" onclick="toggleKeyboard(false)">닫기</div>
+        </div>
+    </div>
+
     <canvas id="render-canvas"></canvas>
 
     <script>
         let scene, cameraLeft, cameraRight, renderer, hands;
         const joints = [];
-        let skeletonLines = [];
         const appIcons = [];
+        let glassPanel = null;
+        let handMeshMesh = null;
+        let handGeometry = null;
         
         let isAppVisible = false;
         let lastFistState = false;
@@ -79,22 +153,30 @@
         const canvas = document.getElementById('render-canvas');
         const startBtn = document.getElementById('start-btn');
         const statusTag = document.getElementById('status-tag');
+        const webWindow = document.getElementById('web-window');
+        const webFrame = document.getElementById('web-frame');
+        const webTitle = document.getElementById('web-title');
+        const virtualKb = document.getElementById('virtual-keyboard');
 
-        const HAND_CONNECTIONS = [
-            [0,1], [1,2], [2,3], [3,4],
-            [0,5], [5,6], [6,7], [7,8],
-            [5,9], [9,10], [10,11], [11,12],
-            [9,13], [13,14], [14,15], [15,16],
-            [13,17], [0,17], [17,18], [18,19], [19,20]
+        const HAND_TRIANGLES = [
+            0,1,2, 0,2,3, 0,3,4,
+            0,5,6, 0,6,7, 0,7,8,
+            5,9,10, 5,10,11, 5,11,12,
+            9,13,14, 9,14,15, 9,15,16,
+            13,17,18, 13,18,19, 13,19,20,
+            0,5,9, 0,9,13, 0,13,17
         ];
 
+        // 이미지 속 비전프로 아이콘 배치 구성
         const appsData = [
-            { name: "Internet", color: 0x007aff, url: "https://www.google.com" },
-            { name: "YouTube", color: 0xff0000, url: "https://www.youtube.com" },
-            { name: "Photos", color: 0xff9500, url: "#" },
-            { name: "Music", color: 0xff2d55, url: "#" },
-            { name: "Settings", color: 0x8e8e93, url: "#" },
-            { name: "VR Space", color: 0x5856d6, url: "#" }
+            { name: "Apple TV", color: 0x1c1c1e, url: "https://tv.apple.com" },
+            { name: "Talk", color: 0xfee500, url: "https://www.kakaocorp.com" },
+            { name: "YouTube", color: 0xff0000, url: "https://www.youtube.com/embed" },
+            { name: "Camera", color: 0xd1d1d6, url: "#" },
+            { name: "Phone", color: 0x34c759, url: "#" },
+            { name: "Naver", color: 0x03cf5d, url: "https://m.naver.com" },
+            { name: "Clock", color: 0xffffff, url: "#" },
+            { name: "Safari", color: 0x007aff, url: "https://www.google.com/custom?q=" }
         ];
 
         async function startVisionAR() {
@@ -147,10 +229,10 @@
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
             renderer.setClearColor(0x000000, 0);
 
-            createAppGrid();
+            createVisionPanel();
 
-            const jointGeo = new THREE.SphereGeometry(0.08, 12, 12);
-            const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+            const jointGeo = new THREE.SphereGeometry(0.04, 12, 12);
+            const jointMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
 
             for (let i = 0; i < 21; i++) {
                 const joint = new THREE.Mesh(jointGeo, jointMat);
@@ -159,14 +241,63 @@
                 joints.push(joint);
             }
 
-            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 });
-            HAND_CONNECTIONS.forEach(() => {
-                const geometry = new THREE.BufferGeometry();
-                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-                const line = new THREE.Line(geometry, lineMat);
-                line.visible = false;
-                scene.add(line);
-                skeletonLines.push(line);
+            handGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(21 * 3);
+            handGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            handGeometry.setIndex(HAND_TRIANGLES);
+
+            const handMat = new THREE.MeshBasicMaterial({
+                color: 0x0088ff,
+                transparent: true,
+                opacity: 0.4,
+                side: THREE.DoubleSide
+            });
+
+            handMeshMesh = new THREE.Mesh(handGeometry, handMat);
+            handMeshMesh.visible = false;
+            scene.add(handMeshMesh);
+        }
+
+        function createVisionPanel() {
+            // 1. 비전프로 유리 배경 패널
+            const panelGeo = new THREE.PlaneGeometry(4.2, 2.2);
+            const panelMat = new THREE.MeshBasicMaterial({
+                color: 0x222222,
+                transparent: true,
+                opacity: 0.65,
+                side: THREE.DoubleSide
+            });
+            glassPanel = new THREE.Mesh(panelGeo, panelMat);
+            glassPanel.position.set(0, 0, -1.2);
+            glassPanel.visible = false;
+            scene.add(glassPanel);
+
+            // 2. 8개 아이콘 그리드 생성 (2행 4열)
+            const cols = 4;
+            const spacingX = 0.95;
+            const spacingY = 0.85;
+
+            appsData.forEach((app, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+
+                const iconGeo = new THREE.PlaneGeometry(0.7, 0.7);
+                const iconMat = new THREE.MeshBasicMaterial({ 
+                    color: app.color, 
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const mesh = new THREE.Mesh(iconGeo, iconMat);
+
+                const posX = (col - 1.5) * spacingX;
+                const posY = 0.4 - (row * spacingY);
+                mesh.position.set(posX, posY, -1.15);
+                mesh.visible = false;
+                mesh.userData = { url: app.url, name: app.name };
+
+                scene.add(mesh);
+                appIcons.push(mesh);
             });
         }
 
@@ -187,35 +318,6 @@
             }
         }
 
-        function createAppGrid() {
-            const cols = 3;
-            const spacingX = 1.3;
-            const spacingY = 1.2;
-
-            appsData.forEach((app, i) => {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-
-                const iconGeo = new THREE.CircleGeometry(0.4, 32);
-                const iconMat = new THREE.MeshBasicMaterial({ 
-                    color: app.color, 
-                    side: THREE.DoubleSide,
-                    transparent: true,
-                    opacity: 0.85
-                });
-                const mesh = new THREE.Mesh(iconGeo, iconMat);
-
-                const posX = (col - 1) * spacingX;
-                const posY = 0.6 - (row * spacingY);
-                mesh.position.set(posX, posY, -1.0);
-                mesh.visible = false;
-                mesh.userData = { url: app.url, name: app.name };
-
-                scene.add(mesh);
-                appIcons.push(mesh);
-            });
-        }
-
         async function render() {
             requestAnimationFrame(render);
 
@@ -231,12 +333,10 @@
 
             renderer.setScissorTest(true);
 
-            // 좌측 눈
             renderer.setViewport(0, 0, halfW, h);
             renderer.setScissor(0, 0, halfW, h);
             renderer.render(scene, cameraLeft);
 
-            // 우측 눈
             renderer.setViewport(halfW, 0, halfW, h);
             renderer.setScissor(halfW, 0, halfW, h);
             renderer.render(scene, cameraRight);
@@ -258,19 +358,36 @@
             if (!isAppVisible) return;
 
             const now = Date.now();
-            if (now - lastTouchTime < 1500) return; // 중복 터치 방지 (1.5초 쿨타임)
+            if (now - lastTouchTime < 1200) return;
 
             appIcons.forEach(icon => {
                 const dist = indexPos.distanceTo(icon.position);
-                if (dist < 0.5) { // 검지 손가락 끝이 아이콘 반경에 들어왔을 때
+                if (dist < 0.45) {
                     lastTouchTime = now;
-                    if (icon.userData.url && icon.userData.url !== "#") {
-                        window.open(icon.userData.url, '_blank');
-                    } else {
-                        alert(`${icon.userData.name} 앱이 실행되었습니다!`);
-                    }
+                    launchApp(icon.userData.name, icon.userData.url);
                 }
             });
+        }
+
+        function launchApp(name, url) {
+            webTitle.innerText = name;
+            if (url && url !== "#") {
+                webFrame.src = url;
+            } else {
+                webFrame.srcdoc = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#111;color:#fff;"><h2>${name} App Active</h2></div>`;
+            }
+            webWindow.style.display = 'flex';
+            toggleKeyboard(true);
+        }
+
+        function closeApp() {
+            webWindow.style.display = 'none';
+            webFrame.src = "about:blank";
+            toggleKeyboard(false);
+        }
+
+        function toggleKeyboard(show) {
+            virtualKb.style.display = show ? 'flex' : 'none';
         }
 
         function onHandResults(results) {
@@ -279,33 +396,31 @@
                 statusTag.style.color = "#00ff00";
 
                 const landmarks = results.multiHandLandmarks[0];
+                const posAttr = handGeometry ? handGeometry.attributes.position : null;
 
                 landmarks.forEach((lm, index) => {
-                    // 좌우 반전 수정 (lm.x - 0.5 로 변경)
-                    const x = (lm.x - 0.5) * 6;
+                    const x = -(lm.x - 0.5) * 6;
                     const y = (0.5 - lm.y) * 4;
                     const z = -lm.z * 5 - 1.0;
 
-                    joints[index].position.set(x, y, z);
-                    joints[index].visible = true;
+                    if (joints[index]) {
+                        joints[index].position.set(x, y, z);
+                        joints[index].visible = true;
+                    }
+
+                    if (posAttr) {
+                        posAttr.setXYZ(index, x, y, z);
+                    }
                 });
 
-                HAND_CONNECTIONS.forEach((pair, index) => {
-                    const p1 = joints[pair[0]].position;
-                    const p2 = joints[pair[1]].position;
+                if (posAttr) {
+                    posAttr.needsUpdate = true;
+                    handGeometry.computeVertexNormals();
+                    handMeshMesh.visible = true;
+                }
 
-                    const positions = skeletonLines[index].geometry.attributes.position.array;
-                    positions[0] = p1.x; positions[1] = p1.y; positions[2] = p1.z;
-                    positions[3] = p2.x; positions[4] = p2.y; positions[5] = p2.z;
+                if (joints[8]) checkIndexTouch(joints[8].position);
 
-                    skeletonLines[index].geometry.attributes.position.needsUpdate = true;
-                    skeletonLines[index].visible = true;
-                });
-
-                // 검지 끝(8번 마디) 터치 감지
-                checkIndexTouch(joints[8].position);
-
-                // 주먹 감지 및 2번 연속 동작 처리
                 const isFist = checkIsFist(landmarks);
                 const now = Date.now();
 
@@ -319,10 +434,13 @@
 
                     if (!isAppVisible && fistCount === 1) {
                         isAppVisible = true;
+                        glassPanel.visible = true;
                         appIcons.forEach(icon => icon.visible = true);
                     } else if (isAppVisible && fistCount >= 2) {
                         isAppVisible = false;
+                        glassPanel.visible = false;
                         appIcons.forEach(icon => icon.visible = false);
+                        closeApp();
                         fistCount = 0;
                     }
                 }
@@ -332,7 +450,7 @@
                 statusTag.innerText = "손 찾는 중...";
                 statusTag.style.color = "#ffaa00";
                 joints.forEach(j => j.visible = false);
-                skeletonLines.forEach(l => l.visible = false);
+                if (handMeshMesh) handMeshMesh.visible = false;
             }
         }
 
