@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vision Pro AR System</title>
+    <title>VisionOS Exact System Architecture</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
             width: 100%; height: 100%;
             overflow: hidden; background: #000;
             position: fixed; top: 0; left: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
         }
         
         .camera-container {
@@ -18,14 +18,8 @@
             width: 100vw; height: 100vh;
             display: flex; z-index: 1;
         }
-        .cam-view {
-            width: 50vw; height: 100vh;
-            overflow: hidden; position: relative;
-        }
-        .cam-view video {
-            width: 100%; height: 100%;
-            object-fit: cover;
-        }
+        .cam-view { width: 50vw; height: 100vh; overflow: hidden; position: relative; }
+        .cam-view video { width: 100%; height: 100%; object-fit: cover; }
 
         #render-canvas {
             position: absolute; top: 0; left: 0;
@@ -33,63 +27,72 @@
             z-index: 2; pointer-events: none;
         }
 
-        /* AR 2D/3D 웹 브라우저 UI 레이어 */
-        #web-window {
-            position: absolute; top: 10%; left: 15%;
-            width: 70vw; height: 50vh;
-            background: rgba(20, 20, 20, 0.85);
-            border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(20px);
-            z-index: 10; display: none; flex-direction: column;
-            overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        /* 비전프로 스타일 중앙 시선 커서 */
+        #gaze-reticle {
+            position: absolute; top: 50%; left: 50%;
+            width: 20px; height: 20px;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%; z-index: 99; pointer-events: none;
+            transition: transform 0.1s ease, background 0.1s ease;
         }
-        #web-header {
-            height: 40px; background: rgba(255,255,255,0.05);
-            display: flex; align-items: center; padding: 0 16px; justify-content: space-between;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        #web-title { color: #fff; font-size: 14px; font-weight: 500; }
-        #close-btn {
-            background: #ff3b30; color: #fff; border: none; width: 18px; height: 18px;
-            border-radius: 50%; font-size: 10px; cursor: pointer; display: flex;
-            align-items: center; justify-content: center;
-        }
-        #web-frame {
-            width: 100%; height: calc(100% - 40px); border: none; background: #fff;
+        #gaze-reticle.active {
+            transform: translate(-50%, -50%) scale(1.4);
+            background: rgba(0, 122, 255, 0.6);
+            border-color: #007aff;
         }
 
-        /* 3D 가상 키보드 UI */
-        #virtual-keyboard {
-            position: absolute; bottom: 8%; left: 20%;
-            width: 60vw; height: 28vh;
-            background: rgba(30, 30, 30, 0.9);
-            border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(25px);
+        /* 윈도우 UI */
+        #app-window {
+            position: absolute; top: 10%; left: 15%;
+            width: 70vw; height: 55vh;
+            background: rgba(25, 25, 25, 0.75);
+            border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(35px); -webkit-backdrop-filter: blur(35px);
+            z-index: 10; display: none; flex-direction: column;
+            overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+        }
+        #window-bar {
+            height: 48px; background: rgba(255,255,255,0.05);
+            display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
+        }
+        #window-title { color: #fff; font-size: 15px; font-weight: 600; }
+        #close-btn {
+            background: rgba(255,255,255,0.2); color: #fff; border: none; width: 24px; height: 24px;
+            border-radius: 50%; font-size: 12px; cursor: pointer;
+        }
+
+        #app-iframe { width: 100%; height: calc(100% - 48px); border: none; background: #fff; }
+
+        /* 가상 키보드 */
+        #vision-keyboard {
+            position: absolute; bottom: 6%; left: 20%;
+            width: 60vw; height: 26vh;
+            background: rgba(30, 30, 30, 0.8);
+            border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(30px);
             z-index: 11; display: none; flex-direction: column;
-            padding: 12px; gap: 8px; box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+            padding: 12px; gap: 8px;
         }
         .kb-row { display: flex; width: 100%; height: 23%; gap: 6px; }
         .kb-key {
-            flex: 1; background: rgba(255,255,255,0.15); border-radius: 8px;
+            flex: 1; background: rgba(255,255,255,0.12); border-radius: 10px;
             color: #fff; display: flex; align-items: center; justify-content: center;
-            font-size: 16px; font-weight: 500; user-select: none;
-            transition: background 0.1s;
+            font-size: 16px; font-weight: 500;
         }
-        .kb-key.active { background: #007aff; }
-        .kb-key.space { flex: 4; }
 
         #start-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 999; padding: 20px 40px; font-size: 20px; font-weight: bold;
-            color: #fff; background: #007aff; border: none; border-radius: 12px; cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
+            z-index: 999; padding: 20px 40px; font-size: 18px; font-weight: 600;
+            color: #fff; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 30px; backdrop-filter: blur(20px); cursor: pointer;
         }
 
         #status-tag {
-            position: absolute; top: 15px; left: 15px; z-index: 100;
-            background: rgba(0,0,0,0.7); color: #00ff00; font-weight: bold;
-            padding: 8px 16px; border-radius: 20px; font-size: 14px;
-            font-family: sans-serif; display: none;
+            position: absolute; top: 20px; left: 20px; z-index: 100;
+            background: rgba(0,0,0,0.6); color: #fff; padding: 8px 16px;
+            border-radius: 20px; font-size: 13px; backdrop-filter: blur(10px);
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -97,25 +100,24 @@
 </head>
 <body>
 
-    <button id="start-btn" onclick="startVisionAR()">비전프로 AR 실행</button>
-    <div id="status-tag">손 찾는 중...</div>
+    <button id="start-btn" onclick="startVisionAR()">VisionOS 시작</button>
+    <div id="status-tag">시선 추적 준비 중...</div>
+    <div id="gaze-reticle"></div>
 
     <div class="camera-container">
         <div class="cam-view"><video id="v-left" autoplay playsinline muted></video></div>
         <div class="cam-view"><video id="v-right" autoplay playsinline muted></video></div>
     </div>
 
-    <!-- 브라우저 창 -->
-    <div id="web-window">
-        <div id="web-header">
-            <span id="web-title">Vision OS Browser</span>
+    <div id="app-window">
+        <div id="window-bar">
+            <span id="window-title">Safari</span>
             <button id="close-btn" onclick="closeApp()">✕</button>
         </div>
-        <iframe id="web-frame" src="about:blank"></iframe>
+        <iframe id="app-iframe" src="about:blank"></iframe>
     </div>
 
-    <!-- 가상 키보드 -->
-    <div id="virtual-keyboard">
+    <div id="vision-keyboard">
         <div class="kb-row">
             <div class="kb-key">Q</div><div class="kb-key">W</div><div class="kb-key">E</div><div class="kb-key">R</div><div class="kb-key">T</div><div class="kb-key">Y</div><div class="kb-key">U</div><div class="kb-key">I</div><div class="kb-key">O</div><div class="kb-key">P</div>
         </div>
@@ -126,7 +128,7 @@
             <div class="kb-key">Z</div><div class="kb-key">X</div><div class="kb-key">C</div><div class="kb-key">V</div><div class="kb-key">B</div><div class="kb-key">N</div><div class="kb-key">M</div>
         </div>
         <div class="kb-row">
-            <div class="kb-key space">Space</div>
+            <div class="kb-key" style="flex:4">Space</div>
             <div class="kb-key" onclick="toggleKeyboard(false)">닫기</div>
         </div>
     </div>
@@ -135,39 +137,25 @@
 
     <script>
         let scene, cameraLeft, cameraRight, renderer, hands;
-        const joints = [];
         const appIcons = [];
         let glassPanel = null;
-        let handMeshMesh = null;
-        let handGeometry = null;
-        
-        let isAppVisible = false;
-        let lastFistState = false;
-        let fistCount = 0;
-        let lastFistTime = 0;
-        let isProcessing = false;
-        let lastTouchTime = 0;
+        let raycaster, mouseCenter;
+        let hoveredApp = null;
+        let isPinching = false;
+        let lastPinchTime = 0;
+        let isAppOpen = false;
 
         const videoLeft = document.getElementById('v-left');
         const videoRight = document.getElementById('v-right');
         const canvas = document.getElementById('render-canvas');
         const startBtn = document.getElementById('start-btn');
         const statusTag = document.getElementById('status-tag');
-        const webWindow = document.getElementById('web-window');
-        const webFrame = document.getElementById('web-frame');
-        const webTitle = document.getElementById('web-title');
-        const virtualKb = document.getElementById('virtual-keyboard');
+        const reticle = document.getElementById('gaze-reticle');
+        const appWindow = document.getElementById('app-window');
+        const appIframe = document.getElementById('app-iframe');
+        const windowTitle = document.getElementById('window-title');
+        const keyboard = document.getElementById('vision-keyboard');
 
-        const HAND_TRIANGLES = [
-            0,1,2, 0,2,3, 0,3,4,
-            0,5,6, 0,6,7, 0,7,8,
-            5,9,10, 5,10,11, 5,11,12,
-            9,13,14, 9,14,15, 9,15,16,
-            13,17,18, 13,18,19, 13,19,20,
-            0,5,9, 0,9,13, 0,13,17
-        ];
-
-        // 이미지 속 비전프로 아이콘 배치 구성
         const appsData = [
             { name: "Apple TV", color: 0x1c1c1e, url: "https://tv.apple.com" },
             { name: "Talk", color: 0xfee500, url: "https://www.kakaocorp.com" },
@@ -176,7 +164,7 @@
             { name: "Phone", color: 0x34c759, url: "#" },
             { name: "Naver", color: 0x03cf5d, url: "https://m.naver.com" },
             { name: "Clock", color: 0xffffff, url: "#" },
-            { name: "Safari", color: 0x007aff, url: "https://www.google.com/custom?q=" }
+            { name: "Safari", color: 0x007aff, url: "https://www.google.com" }
         ];
 
         async function startVisionAR() {
@@ -194,25 +182,14 @@
             initMediaPipe();
 
             window.addEventListener('resize', updateLayout);
-            window.addEventListener('orientationchange', () => setTimeout(updateLayout, 300));
-
             updateLayout();
             render();
         }
 
         async function initCamera() {
-            let stream = null;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } }
-                });
-            } catch (e) {
-                stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            }
-
+            let stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             videoLeft.srcObject = stream;
             videoRight.srcObject = stream;
-
             await videoLeft.play();
             await videoRight.play();
         }
@@ -220,59 +197,31 @@
         function initThree() {
             scene = new THREE.Scene();
 
-            cameraLeft = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-            cameraRight = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-
+            cameraLeft = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
+            cameraRight = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
             cameraLeft.position.set(-0.1, 0, 5);
             cameraRight.position.set(0.1, 0, 5);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
             renderer.setClearColor(0x000000, 0);
 
-            createVisionPanel();
+            raycaster = new THREE.Raycaster();
+            mouseCenter = new THREE.Vector2(0, 0); // 화면 중앙(시선)
 
-            const jointGeo = new THREE.SphereGeometry(0.04, 12, 12);
-            const jointMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
-
-            for (let i = 0; i < 21; i++) {
-                const joint = new THREE.Mesh(jointGeo, jointMat);
-                joint.visible = false;
-                scene.add(joint);
-                joints.push(joint);
-            }
-
-            handGeometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(21 * 3);
-            handGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            handGeometry.setIndex(HAND_TRIANGLES);
-
-            const handMat = new THREE.MeshBasicMaterial({
-                color: 0x0088ff,
-                transparent: true,
-                opacity: 0.4,
-                side: THREE.DoubleSide
-            });
-
-            handMeshMesh = new THREE.Mesh(handGeometry, handMat);
-            handMeshMesh.visible = false;
-            scene.add(handMeshMesh);
+            createHomeBoard();
         }
 
-        function createVisionPanel() {
-            // 1. 비전프로 유리 배경 패널
-            const panelGeo = new THREE.PlaneGeometry(4.2, 2.2);
+        function createHomeBoard() {
+            // 비전프로 유리 홈 보드
+            const panelGeo = new THREE.PlaneGeometry(4.4, 2.4);
             const panelMat = new THREE.MeshBasicMaterial({
-                color: 0x222222,
-                transparent: true,
-                opacity: 0.65,
-                side: THREE.DoubleSide
+                color: 0x111111, transparent: true, opacity: 0.5, side: THREE.DoubleSide
             });
             glassPanel = new THREE.Mesh(panelGeo, panelMat);
-            glassPanel.position.set(0, 0, -1.2);
-            glassPanel.visible = false;
+            glassPanel.position.set(0, 0, -1.5);
             scene.add(glassPanel);
 
-            // 2. 8개 아이콘 그리드 생성 (2행 4열)
+            // 아이콘 2행 4열
             const cols = 4;
             const spacingX = 0.95;
             const spacingY = 0.85;
@@ -282,19 +231,13 @@
                 const row = Math.floor(i / cols);
 
                 const iconGeo = new THREE.PlaneGeometry(0.7, 0.7);
-                const iconMat = new THREE.MeshBasicMaterial({ 
-                    color: app.color, 
-                    side: THREE.DoubleSide,
-                    transparent: true,
-                    opacity: 0.9
-                });
+                const iconMat = new THREE.MeshBasicMaterial({ color: app.color, side: THREE.DoubleSide });
                 const mesh = new THREE.Mesh(iconGeo, iconMat);
 
                 const posX = (col - 1.5) * spacingX;
                 const posY = 0.4 - (row * spacingY);
-                mesh.position.set(posX, posY, -1.15);
-                mesh.visible = false;
-                mesh.userData = { url: app.url, name: app.name };
+                mesh.position.set(posX, posY, -1.45);
+                mesh.userData = { ...app, originalScale: new THREE.Vector3(1, 1, 1) };
 
                 scene.add(mesh);
                 appIcons.push(mesh);
@@ -304,27 +247,40 @@
         function updateLayout() {
             const w = window.innerWidth;
             const h = window.innerHeight;
-            const halfWidth = w / 2;
-            const aspect = halfWidth / h;
-
-            if (renderer && cameraLeft && cameraRight) {
-                renderer.setSize(w, h);
-                
-                cameraLeft.aspect = aspect;
-                cameraLeft.updateProjectionMatrix();
-
-                cameraRight.aspect = aspect;
-                cameraRight.updateProjectionMatrix();
-            }
+            renderer.setSize(w, h);
+            cameraLeft.aspect = (w / 2) / h;
+            cameraRight.aspect = (w / 2) / h;
+            cameraLeft.updateProjectionMatrix();
+            cameraRight.updateProjectionMatrix();
         }
 
         async function render() {
             requestAnimationFrame(render);
 
-            if (videoLeft.readyState >= 2 && hands && !isProcessing) {
-                isProcessing = true;
+            if (videoLeft.readyState >= 2 && hands) {
                 await hands.send({ image: videoLeft });
-                isProcessing = false;
+            }
+
+            // 시선(중앙) Raycasting 체크
+            if (!isAppOpen) {
+                raycaster.setFromCamera(mouseCenter, cameraLeft);
+                const intersects = raycaster.intersectObjects(appIcons);
+
+                if (intersects.length > 0) {
+                    const hit = intersects[0].object;
+                    if (hoveredApp !== hit) {
+                        if (hoveredApp) hoveredApp.scale.set(1, 1, 1);
+                        hoveredApp = hit;
+                        hoveredApp.scale.set(1.15, 1.15, 1.15); // 비전프로의 바라볼 때 응답(하이라이트 및 확대)
+                        reticle.classList.add('active');
+                    }
+                } else {
+                    if (hoveredApp) {
+                        hoveredApp.scale.set(1, 1, 1);
+                        hoveredApp = null;
+                        reticle.classList.remove('active');
+                    }
+                }
             }
 
             const w = window.innerWidth;
@@ -332,7 +288,6 @@
             const halfW = w / 2;
 
             renderer.setScissorTest(true);
-
             renderer.setViewport(0, 0, halfW, h);
             renderer.setScissor(0, 0, halfW, h);
             renderer.render(scene, cameraLeft);
@@ -340,132 +295,76 @@
             renderer.setViewport(halfW, 0, halfW, h);
             renderer.setScissor(halfW, 0, halfW, h);
             renderer.render(scene, cameraRight);
-
             renderer.setScissorTest(false);
-        }
-
-        function checkIsFist(landmarks) {
-            const wrist = landmarks[0];
-            const distIndex = Math.hypot(landmarks[8].x - wrist.x, landmarks[8].y - wrist.y);
-            const distMiddle = Math.hypot(landmarks[12].x - wrist.x, landmarks[12].y - wrist.y);
-            const distRing = Math.hypot(landmarks[16].x - wrist.x, landmarks[16].y - wrist.y);
-            const baseIndex = Math.hypot(landmarks[5].x - wrist.x, landmarks[5].y - wrist.y);
-
-            return (distIndex < baseIndex * 1.2) && (distMiddle < baseIndex * 1.2) && (distRing < baseIndex * 1.2);
-        }
-
-        function checkIndexTouch(indexPos) {
-            if (!isAppVisible) return;
-
-            const now = Date.now();
-            if (now - lastTouchTime < 1200) return;
-
-            appIcons.forEach(icon => {
-                const dist = indexPos.distanceTo(icon.position);
-                if (dist < 0.45) {
-                    lastTouchTime = now;
-                    launchApp(icon.userData.name, icon.userData.url);
-                }
-            });
-        }
-
-        function launchApp(name, url) {
-            webTitle.innerText = name;
-            if (url && url !== "#") {
-                webFrame.src = url;
-            } else {
-                webFrame.srcdoc = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#111;color:#fff;"><h2>${name} App Active</h2></div>`;
-            }
-            webWindow.style.display = 'flex';
-            toggleKeyboard(true);
-        }
-
-        function closeApp() {
-            webWindow.style.display = 'none';
-            webFrame.src = "about:blank";
-            toggleKeyboard(false);
-        }
-
-        function toggleKeyboard(show) {
-            virtualKb.style.display = show ? 'flex' : 'none';
         }
 
         function onHandResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                statusTag.innerText = "손 인식됨!";
-                statusTag.style.color = "#00ff00";
+                statusTag.innerText = "손 추적 중 (핀치 제스처 준비)";
+                const lm = results.multiHandLandmarks[0];
 
-                const landmarks = results.multiHandLandmarks[0];
-                const posAttr = handGeometry ? handGeometry.attributes.position : null;
+                // 엄지 손가락 끝(4번)과 검지 손가락 끝(8번) 거리를 이용한 Pinch 제스처 감지
+                const thumbTip = lm[4];
+                const indexTip = lm[8];
+                const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y, thumbTip.z - indexTip.z);
 
-                landmarks.forEach((lm, index) => {
-                    const x = -(lm.x - 0.5) * 6;
-                    const y = (0.5 - lm.y) * 4;
-                    const z = -lm.z * 5 - 1.0;
-
-                    if (joints[index]) {
-                        joints[index].position.set(x, y, z);
-                        joints[index].visible = true;
-                    }
-
-                    if (posAttr) {
-                        posAttr.setXYZ(index, x, y, z);
-                    }
-                });
-
-                if (posAttr) {
-                    posAttr.needsUpdate = true;
-                    handGeometry.computeVertexNormals();
-                    handMeshMesh.visible = true;
-                }
-
-                if (joints[8]) checkIndexTouch(joints[8].position);
-
-                const isFist = checkIsFist(landmarks);
                 const now = Date.now();
+                if (distance < 0.06) { // 엄지-검지를 꼬집었을 때
+                    if (!isPinching && (now - lastPinchTime > 800)) {
+                        isPinching = true;
+                        lastPinchTime = now;
 
-                if (isFist && !lastFistState) {
-                    if (now - lastFistTime < 1000) {
-                        fistCount++;
-                    } else {
-                        fistCount = 1;
+                        // 시선이 머문 곳에서 Pinch 발생 시 실행
+                        if (hoveredApp && !isAppOpen) {
+                            openApp(hoveredApp.userData.name, hoveredApp.userData.url);
+                        }
                     }
-                    lastFistTime = now;
-
-                    if (!isAppVisible && fistCount === 1) {
-                        isAppVisible = true;
-                        glassPanel.visible = true;
-                        appIcons.forEach(icon => icon.visible = true);
-                    } else if (isAppVisible && fistCount >= 2) {
-                        isAppVisible = false;
-                        glassPanel.visible = false;
-                        appIcons.forEach(icon => icon.visible = false);
-                        closeApp();
-                        fistCount = 0;
-                    }
+                } else {
+                    isPinching = false;
                 }
-                lastFistState = isFist;
-
             } else {
-                statusTag.innerText = "손 찾는 중...";
-                statusTag.style.color = "#ffaa00";
-                joints.forEach(j => j.visible = false);
-                if (handMeshMesh) handMeshMesh.visible = false;
+                statusTag.innerText = "손을 카메라 앞으로 가져오세요";
             }
+        }
+
+        function openApp(name, url) {
+            isAppOpen = true;
+            windowTitle.innerText = name;
+            glassPanel.visible = false;
+            appIcons.forEach(icon => icon.visible = false);
+
+            if (url && url !== "#") {
+                appIframe.src = url;
+            } else {
+                appIframe.srcdoc = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#fff;font-family:sans-serif;"><h2>${name} App Active</h2></div>`;
+            }
+            appWindow.style.display = 'flex';
+            keyboard.style.display = 'flex';
+        }
+
+        function closeApp() {
+            isAppOpen = false;
+            appWindow.style.display = 'none';
+            keyboard.style.display = 'none';
+            appIframe.src = "about:blank";
+            glassPanel.visible = true;
+            appIcons.forEach(icon => icon.visible = true);
+        }
+
+        function toggleKeyboard(show) {
+            keyboard.style.display = show ? 'flex' : 'none';
         }
 
         function initMediaPipe() {
             hands = new Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
-
             hands.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 1,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
             });
-
             hands.onResults(onHandResults);
         }
     </script>
