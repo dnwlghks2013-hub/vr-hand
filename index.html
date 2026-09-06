@@ -3,29 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Cardboard VR YouTube Browser</title>
+    <title>Full Hand Tracking AR</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; }
-        #webcam { display: none; }
-        #container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+        
+        /* 실시간 패스스루 카메라 */
+        .camera-container {
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            display: flex; z-index: 1;
+        }
+        .cam-view { width: 50vw; height: 100vh; overflow: hidden; }
+        .cam-view video { width: 100%; height: 100%; object-fit: cover; }
+
+        /* 3D AR 손 레이어 */
+        #container {
+            width: 100vw; height: 100vh;
+            position: absolute; top: 0; left: 0;
+            z-index: 2; pointer-events: none;
+        }
+
         #start-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             z-index: 999; padding: 20px 40px; font-size: 20px; font-weight: bold;
-            color: #fff; background: #28a745; border: none; border-radius: 10px; cursor: pointer;
+            color: #fff; background: #007aff; border: none; border-radius: 12px; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
         }
-        /* VR 화면 오버레이 레이어 */
-        .vr-screen-container {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            display: flex; gap: 20px; z-index: 10; pointer-events: none;
-        }
-        .screen-box {
-            width: 45vw; height: 70vh; background: #111;
-            border: 2px solid #444; border-radius: 10px; overflow: hidden;
-            pointer-events: auto;
-        }
-        iframe { width: 100%; height: 100%; border: none; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -33,30 +37,38 @@
 </head>
 <body>
 
-    <button id="start-btn" onclick="startVR()">VR 시작 (터치하여 화면 열기)</button>
-    <video id="webcam" playsinline></video>
-    <div id="container"></div>
+    <button id="start-btn" onclick="startVisionAR()">손 전체 감지 AR 시작</button>
 
-    <!-- 좌우 입체 VR 유튜브 화면 -->
-    <div class="vr-screen-container" id="vr-ui" style="display: none;">
-        <div class="screen-box">
-            <iframe src="https://www.youtube.com/embed/?listType=playlist&list=PLrAXtmErZgOdP_8Gzs0fLRE5fBvM0w1S4" allowfullscreen></iframe>
-        </div>
-        <div class="screen-box">
-            <iframe src="https://www.youtube.com/embed/?listType=playlist&list=PLrAXtmErZgOdP_8Gzs0fLRE5fBvM0w1S4" allowfullscreen></iframe>
-        </div>
+    <!-- 배경 카메라 스트림 -->
+    <div class="camera-container">
+        <div class="cam-view"><video id="webcam-left" autoplay playsinline muted></video></div>
+        <div class="cam-view"><video id="webcam-right" autoplay playsinline muted></video></div>
     </div>
 
+    <!-- AR 오버레이 -->
+    <div id="container"></div>
+
     <script>
-        let scene, camera, renderer, cursorMesh;
-        const videoElement = document.getElementById('webcam');
+        let scene, camera, renderer;
+        const joints = [];
+        let skeletonLines = [];
+
+        const videoLeft = document.getElementById('webcam-left');
+        const videoRight = document.getElementById('webcam-right');
         const container = document.getElementById('container');
         const startBtn = document.getElementById('start-btn');
-        const vrUi = document.getElementById('vr-ui');
 
-        function startVR() {
+        // MediaPipe 손가락 & 손바닥 21개 관절 연결 구조 정의
+        const HAND_CONNECTIONS = [
+            [0,1], [1,2], [2,3], [3,4],           // 엄지
+            [0,5], [5,6], [6,7], [7,8],           // 검지
+            [5,9], [9,10], [10,11], [11,12],      // 중지
+            [9,13], [13,14], [14,15], [15,16],    // 약지
+            [13,17], [0,17], [17,18], [18,19], [19,20] // 새끼 및 손바닥 연결
+        ];
+
+        async function startVisionAR() {
             startBtn.style.display = 'none';
-            vrUi.style.display = 'flex';
 
             if (document.documentElement.requestFullscreen) {
                 document.documentElement.requestFullscreen();
@@ -66,7 +78,7 @@
             }
 
             initThree();
-            initCamera();
+            await initCamera();
             render();
         }
 
@@ -76,14 +88,31 @@
             camera.position.set(0, 0, 5);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setClearColor(0x000000, 0);
             renderer.setSize(window.innerWidth, window.innerHeight);
             container.appendChild(renderer.domElement);
 
-            // 손가락 추적 초록색 커서
-            const cursorGeo = new THREE.SphereGeometry(0.1, 16, 16);
-            const cursorMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-            cursorMesh = new THREE.Mesh(cursorGeo, cursorMat);
-            scene.add(cursorMesh);
+            // 1. 손가락 및 손바닥 21개 관절 볼(Sphere) 생성
+            const jointGeo = new THREE.SphereGeometry(0.05, 12, 12);
+            const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // 청록색 관절
+
+            for (let i = 0; i < 21; i++) {
+                const joint = new THREE.Mesh(jointGeo, jointMat);
+                joint.visible = false;
+                scene.add(joint);
+                joints.push(joint);
+            }
+
+            // 2. 관절 사이를 잇는 손바닥/손가락 뼈대 선(Lines) 생성
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+            HAND_CONNECTIONS.forEach(() => {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+                const line = new THREE.Line(geometry, lineMat);
+                line.visible = false;
+                scene.add(line);
+                skeletonLines.push(line);
+            });
         }
 
         function render() {
@@ -93,14 +122,14 @@
 
             renderer.setScissorTest(true);
 
-            // 좌측 눈 렌더링
+            // 좌측 눈
             renderer.setViewport(0, 0, w / 2, h);
             renderer.setScissor(0, 0, w / 2, h);
             camera.aspect = (w / 2) / h;
             camera.updateProjectionMatrix();
             renderer.render(scene, camera);
 
-            // 우측 눈 렌더링
+            // 우측 눈
             renderer.setViewport(w / 2, 0, w / 2, h);
             renderer.setScissor(w / 2, 0, w / 2, h);
             renderer.render(scene, camera);
@@ -111,15 +140,44 @@
         function onHandResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
-                const indexTip = landmarks[8];
 
-                const x = (0.5 - indexTip.x) * 6;
-                const y = (0.5 - indexTip.y) * 4;
-                cursorMesh.position.set(x, y, -2.5);
+                // 21개 마디 좌표 변환 및 관절 위치 업데이트
+                landmarks.forEach((lm, index) => {
+                    const x = (0.5 - lm.x) * 6;
+                    const y = (0.5 - lm.y) * 4;
+                    const z = -lm.z * 5 - 2.5;
+
+                    joints[index].position.set(x, y, z);
+                    joints[index].visible = true;
+                });
+
+                // 손가락 & 손바닥 연결선 업데이트
+                HAND_CONNECTIONS.forEach((pair, index) => {
+                    const p1 = joints[pair[0]].position;
+                    const p2 = joints[pair[1]].position;
+
+                    const positions = skeletonLines[index].geometry.attributes.position.array;
+                    positions[0] = p1.x; positions[1] = p1.y; positions[2] = p1.z;
+                    positions[3] = p2.x; positions[4] = p2.y; positions[5] = p2.z;
+
+                    skeletonLines[index].geometry.attributes.position.needsUpdate = true;
+                    skeletonLines[index].visible = true;
+                });
+            } else {
+                // 손이 안 보일 때 숨김 처리
+                joints.forEach(j => j.visible = false);
+                skeletonLines.forEach(l => l.visible = false);
             }
         }
 
         async function initCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+
+            videoLeft.srcObject = stream;
+            videoRight.srcObject = stream;
+
             const hands = new Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
@@ -133,11 +191,10 @@
 
             hands.onResults(onHandResults);
 
-            const cameraUtils = new Camera(videoElement, {
+            const cameraUtils = new Camera(videoLeft, {
                 onFrame: async () => {
-                    await hands.send({ image: videoElement });
+                    await hands.send({ image: videoLeft });
                 },
-                facingMode: 'environment',
                 width: 640,
                 height: 480
             });
