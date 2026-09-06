@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vision Pro AR - 3D Hand Mesh</title>
+    <title>Vision Pro AR</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
@@ -64,13 +64,15 @@
     <script>
         let scene, cameraLeft, cameraRight, renderer, hands;
         const joints = [];
+        let skeletonLines = [];
         const appIcons = [];
-        let handMeshMesh = null;
-        let handGeometry = null;
         
         let isAppVisible = false;
         let lastFistState = false;
+        let fistCount = 0;
+        let lastFistTime = 0;
         let isProcessing = false;
+        let lastTouchTime = 0;
 
         const videoLeft = document.getElementById('v-left');
         const videoRight = document.getElementById('v-right');
@@ -78,23 +80,21 @@
         const startBtn = document.getElementById('start-btn');
         const statusTag = document.getElementById('status-tag');
 
-        // 손의 면을 생성하기 위한 삼각형 인덱스 정보
-        const HAND_TRIANGLES = [
-            0,1,2, 0,2,3, 0,3,4,
-            0,5,6, 0,6,7, 0,7,8,
-            5,9,10, 5,10,11, 5,11,12,
-            9,13,14, 9,14,15, 9,15,16,
-            13,17,18, 13,18,19, 13,19,20,
-            0,5,9, 0,9,13, 0,13,17
+        const HAND_CONNECTIONS = [
+            [0,1], [1,2], [2,3], [3,4],
+            [0,5], [5,6], [6,7], [7,8],
+            [5,9], [9,10], [10,11], [11,12],
+            [9,13], [13,14], [14,15], [15,16],
+            [13,17], [0,17], [17,18], [18,19], [19,20]
         ];
 
         const appsData = [
-            { name: "Safari", color: 0x007aff },
-            { name: "Photos", color: 0xff3b30 },
-            { name: "Music", color: 0xff2d55 },
-            { name: "TV", color: 0x5856d6 },
-            { name: "Settings", color: 0x8e8e93 },
-            { name: "Notes", color: 0xffcc00 }
+            { name: "Internet", color: 0x007aff, url: "https://www.google.com" },
+            { name: "YouTube", color: 0xff0000, url: "https://www.youtube.com" },
+            { name: "Photos", color: 0xff9500, url: "#" },
+            { name: "Music", color: 0xff2d55, url: "#" },
+            { name: "Settings", color: 0x8e8e93, url: "#" },
+            { name: "VR Space", color: 0x5856d6, url: "#" }
         ];
 
         async function startVisionAR() {
@@ -149,9 +149,8 @@
 
             createAppGrid();
 
-            // 1. 유튜브 이미지처럼 빨간색/주황색 관절 포인트 생성
-            const jointGeo = new THREE.SphereGeometry(0.05, 12, 12);
-            const jointMat = new THREE.MeshBasicMaterial({ color: 0xff3300 }); // 빨간-주황색 점
+            const jointGeo = new THREE.SphereGeometry(0.08, 12, 12);
+            const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
             for (let i = 0; i < 21; i++) {
                 const joint = new THREE.Mesh(jointGeo, jointMat);
@@ -160,23 +159,15 @@
                 joints.push(joint);
             }
 
-            // 2. 유튜브 이미지의 푸른색 입체 마스크(3D Hand Mesh) 생성
-            handGeometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(21 * 3);
-            handGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            handGeometry.setIndex(HAND_TRIANGLES);
-
-            const handMat = new THREE.MeshBasicMaterial({
-                color: 0x0088ff,
-                transparent: true,
-                opacity: 0.45,
-                side: THREE.DoubleSide,
-                wireframe: false
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 });
+            HAND_CONNECTIONS.forEach(() => {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+                const line = new THREE.Line(geometry, lineMat);
+                line.visible = false;
+                scene.add(line);
+                skeletonLines.push(line);
             });
-
-            handMeshMesh = new THREE.Mesh(handGeometry, handMat);
-            handMeshMesh.visible = false;
-            scene.add(handMeshMesh);
         }
 
         function updateLayout() {
@@ -218,6 +209,7 @@
                 const posY = 0.6 - (row * spacingY);
                 mesh.position.set(posX, posY, -1.0);
                 mesh.visible = false;
+                mesh.userData = { url: app.url, name: app.name };
 
                 scene.add(mesh);
                 appIcons.push(mesh);
@@ -262,36 +254,77 @@
             return (distIndex < baseIndex * 1.2) && (distMiddle < baseIndex * 1.2) && (distRing < baseIndex * 1.2);
         }
 
+        function checkIndexTouch(indexPos) {
+            if (!isAppVisible) return;
+
+            const now = Date.now();
+            if (now - lastTouchTime < 1500) return; // 중복 터치 방지 (1.5초 쿨타임)
+
+            appIcons.forEach(icon => {
+                const dist = indexPos.distanceTo(icon.position);
+                if (dist < 0.5) { // 검지 손가락 끝이 아이콘 반경에 들어왔을 때
+                    lastTouchTime = now;
+                    if (icon.userData.url && icon.userData.url !== "#") {
+                        window.open(icon.userData.url, '_blank');
+                    } else {
+                        alert(`${icon.userData.name} 앱이 실행되었습니다!`);
+                    }
+                }
+            });
+        }
+
         function onHandResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 statusTag.innerText = "손 인식됨!";
                 statusTag.style.color = "#00ff00";
 
                 const landmarks = results.multiHandLandmarks[0];
-                const posAttr = handGeometry.attributes.position;
 
                 landmarks.forEach((lm, index) => {
-                    const x = (0.5 - lm.x) * 6;
+                    // 좌우 반전 수정 (lm.x - 0.5 로 변경)
+                    const x = (lm.x - 0.5) * 6;
                     const y = (0.5 - lm.y) * 4;
                     const z = -lm.z * 5 - 1.0;
 
-                    // 관절 포인트 이동
                     joints[index].position.set(x, y, z);
                     joints[index].visible = true;
-
-                    // 푸른색 3D 메시 버텍스 업데이트
-                    posAttr.setXYZ(index, x, y, z);
                 });
 
-                posAttr.needsUpdate = true;
-                handGeometry.computeVertexNormals();
-                handMeshMesh.visible = true;
+                HAND_CONNECTIONS.forEach((pair, index) => {
+                    const p1 = joints[pair[0]].position;
+                    const p2 = joints[pair[1]].position;
 
+                    const positions = skeletonLines[index].geometry.attributes.position.array;
+                    positions[0] = p1.x; positions[1] = p1.y; positions[2] = p1.z;
+                    positions[3] = p2.x; positions[4] = p2.y; positions[5] = p2.z;
+
+                    skeletonLines[index].geometry.attributes.position.needsUpdate = true;
+                    skeletonLines[index].visible = true;
+                });
+
+                // 검지 끝(8번 마디) 터치 감지
+                checkIndexTouch(joints[8].position);
+
+                // 주먹 감지 및 2번 연속 동작 처리
                 const isFist = checkIsFist(landmarks);
+                const now = Date.now();
 
                 if (isFist && !lastFistState) {
-                    isAppVisible = !isAppVisible;
-                    appIcons.forEach(icon => icon.visible = isAppVisible);
+                    if (now - lastFistTime < 1000) {
+                        fistCount++;
+                    } else {
+                        fistCount = 1;
+                    }
+                    lastFistTime = now;
+
+                    if (!isAppVisible && fistCount === 1) {
+                        isAppVisible = true;
+                        appIcons.forEach(icon => icon.visible = true);
+                    } else if (isAppVisible && fistCount >= 2) {
+                        isAppVisible = false;
+                        appIcons.forEach(icon => icon.visible = false);
+                        fistCount = 0;
+                    }
                 }
                 lastFistState = isFist;
 
@@ -299,7 +332,7 @@
                 statusTag.innerText = "손 찾는 중...";
                 statusTag.style.color = "#ffaa00";
                 joints.forEach(j => j.visible = false);
-                if (handMeshMesh) handMeshMesh.visible = false;
+                skeletonLines.forEach(l => l.visible = false);
             }
         }
 
