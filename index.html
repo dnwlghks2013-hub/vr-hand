@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vision Pro AR - Fist Toggle Apps</title>
+    <title>Vision Pro AR - Safe Hand Tracking</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body, html { width: 100%; height: 100%; overflow: hidden; background: #000; }
         
-        /* 패스스루 후면 카메라 */
         .camera-container {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
@@ -17,7 +16,6 @@
         .cam-view { width: 50vw; height: 100vh; overflow: hidden; }
         .cam-view video { width: 100%; height: 100%; object-fit: cover; }
 
-        /* AR 렌더링 레이어 */
         #container {
             width: 100vw; height: 100vh;
             position: absolute; top: 0; left: 0;
@@ -30,6 +28,12 @@
             color: #fff; background: #007aff; border: none; border-radius: 12px; cursor: pointer;
             box-shadow: 0 4px 15px rgba(0, 122, 255, 0.4);
         }
+
+        #error-msg {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            color: #ff4d4d; background: rgba(0,0,0,0.8); padding: 10px 20px;
+            border-radius: 8px; font-size: 14px; z-index: 1000; display: none;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
@@ -38,8 +42,8 @@
 <body>
 
     <button id="start-btn" onclick="startVisionAR()">비전프로 AR 실행</button>
+    <div id="error-msg"></div>
 
-    <!-- 배경 후면 카메라 -->
     <div class="camera-container">
         <div class="cam-view"><video id="webcam-left" autoplay playsinline muted></video></div>
         <div class="cam-view"><video id="webcam-right" autoplay playsinline muted></video></div>
@@ -53,24 +57,23 @@
         let skeletonLines = [];
         const appIcons = [];
         
-        let isAppVisible = false; // 앱 창 표시 상태
-        let lastFistState = false; // 이전 프레임의 주먹 상태
+        let isAppVisible = false;
+        let lastFistState = false;
 
         const videoLeft = document.getElementById('webcam-left');
         const videoRight = document.getElementById('webcam-right');
         const container = document.getElementById('container');
         const startBtn = document.getElementById('start-btn');
+        const errorMsg = document.getElementById('error-msg');
 
-        // 손 관절 연결 구조 (21개 마디 및 손바닥)
         const HAND_CONNECTIONS = [
-            [0,1], [1,2], [2,3], [3,4],           // 엄지
-            [0,5], [5,6], [6,7], [7,8],           // 검지
-            [5,9], [9,10], [10,11], [11,12],      // 중지
-            [9,13], [13,14], [14,15], [15,16],    // 약지
-            [13,17], [0,17], [17,18], [18,19], [19,20] // 새끼 & 손바닥
+            [0,1], [1,2], [2,3], [3,4],
+            [0,5], [5,6], [6,7], [7,8],
+            [5,9], [9,10], [10,11], [11,12],
+            [9,13], [13,14], [14,15], [15,16],
+            [13,17], [0,17], [17,18], [18,19], [19,20]
         ];
 
-        // 비전프로 스타일 앱 데이터
         const appsData = [
             { name: "Safari", color: 0x007aff },
             { name: "Photos", color: 0xff3b30 },
@@ -83,11 +86,15 @@
         async function startVisionAR() {
             startBtn.style.display = 'none';
 
-            if (document.documentElement.requestFullscreen) {
-                document.documentElement.requestFullscreen();
-            }
-            if (screen.orientation && screen.orientation.lock) {
-                screen.orientation.lock('landscape').catch(() => {});
+            try {
+                if (document.documentElement.requestFullscreen) {
+                    await document.documentElement.requestFullscreen();
+                }
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock('landscape').catch(() => {});
+                }
+            } catch (e) {
+                console.warn("전체화면 적용 불가:", e);
             }
 
             initThree();
@@ -105,10 +112,8 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             container.appendChild(renderer.domElement);
 
-            // 1. 공중 앱 창 생성 (초기에는 숨김 상태)
             createAppGrid();
 
-            // 2. 손 관절(Sphere) 및 뼈대선(Line) 생성
             const jointGeo = new THREE.SphereGeometry(0.06, 12, 12);
             const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
@@ -151,7 +156,7 @@
                 const posX = (col - 1) * spacingX;
                 const posY = 0.6 - (row * spacingY);
                 mesh.position.set(posX, posY, -1.0);
-                mesh.visible = false; // 시작 시 안 보이게 설정
+                mesh.visible = false;
 
                 scene.add(mesh);
                 appIcons.push(mesh);
@@ -180,9 +185,7 @@
             renderer.setScissorTest(false);
         }
 
-        // 주먹 쥐었는지 감지하는 함수
         function checkIsFist(landmarks) {
-            // 손가락 끝(8, 12, 16, 20)이 마디 관절(6, 10, 14, 18)보다 아래로 접혀있는지 확인
             const indexFolded = landmarks[8].y > landmarks[6].y;
             const middleFolded = landmarks[12].y > landmarks[10].y;
             const ringFolded = landmarks[16].y > landmarks[14].y;
@@ -195,7 +198,6 @@
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const landmarks = results.multiHandLandmarks[0];
 
-                // 손 관절 위치 업데이트
                 landmarks.forEach((lm, index) => {
                     const x = (0.5 - lm.x) * 6;
                     const y = (0.5 - lm.y) * 4;
@@ -205,7 +207,6 @@
                     joints[index].visible = true;
                 });
 
-                // 손가락 뼈대 선 업데이트
                 HAND_CONNECTIONS.forEach((pair, index) => {
                     const p1 = joints[pair[0]].position;
                     const p2 = joints[pair[1]].position;
@@ -218,10 +219,8 @@
                     skeletonLines[index].visible = true;
                 });
 
-                // 주먹 감지 동작 제어
                 const isFist = checkIsFist(landmarks);
 
-                // 주먹을 쥐었을 때 토글 동작
                 if (isFist && !lastFistState) {
                     isAppVisible = !isAppVisible;
                     appIcons.forEach(icon => icon.visible = isAppVisible);
@@ -235,11 +234,22 @@
         }
 
         async function initCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-            }).catch(async () => {
-                return await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            });
+            let stream = null;
+            
+            // 카메라 요청 (후면 시도 후 실패 시 기본 카메라 적용)
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+            } catch (err) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                } catch (fallbackErr) {
+                    errorMsg.innerText = "카메라를 연결할 수 없습니다. 권한 설정을 확인해주세요.";
+                    errorMsg.style.display = "block";
+                    return;
+                }
+            }
 
             videoLeft.srcObject = stream;
             videoRight.srcObject = stream;
