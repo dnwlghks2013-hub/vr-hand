@@ -2,403 +2,214 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>VisionOS Mobile Pro System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smartphone VisionOS - Drag & Drop</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body {
-            width: 100%; height: 100%; overflow: hidden; background: #000;
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
-            user-select: none; -webkit-user-select: none;
-        }
-
-        /* 양안 패스스루 시야 */
-        .camera-container {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-            display: flex; z-index: 1; pointer-events: none;
-        }
-        .cam-view { width: 50vw; height: 100vh; overflow: hidden; position: relative; }
-        .cam-view video { width: 100%; height: 100%; object-fit: cover; }
-
-        #render-canvas {
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-            z-index: 2; pointer-events: none;
-        }
-
-        /* visionOS 중앙 조준 타겟 */
-        #gaze-reticle {
-            position: absolute; top: 50%; left: 50%;
-            width: 20px; height: 20px; transform: translate(-50%, -50%);
-            border: 2px solid rgba(255, 255, 255, 0.9);
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 50%; z-index: 99; pointer-events: none;
-            transition: transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.12s ease;
-            box-shadow: 0 0 12px rgba(0,0,0,0.4);
-        }
-        #gaze-reticle.hover {
-            transform: translate(-50%, -50%) scale(1.5);
-            background: rgba(255, 255, 255, 0.6);
-            border-color: #ffffff;
-        }
-        #gaze-reticle.pinch {
-            transform: translate(-50%, -50%) scale(0.85);
-            background: #007aff; border-color: #007aff;
-        }
-
-        /* 3D 시스템 유리 윈도우 UI */
-        #app-window {
-            position: absolute; top: 10%; left: 12%; width: 76vw; height: 54vh;
-            background: rgba(25, 25, 25, 0.7);
-            border-radius: 28px; border: 1px solid rgba(255, 255, 255, 0.22);
-            backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
-            z-index: 10; display: none; flex-direction: column; overflow: hidden;
-            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
-        }
-        #window-bar {
-            height: 46px; background: rgba(255,255,255,0.06);
-            display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
-            border-bottom: 1px solid rgba(255,255,255,0.12);
-        }
-        #window-title { color: #fff; font-size: 15px; font-weight: 600; }
-        #close-btn {
-            background: rgba(255,255,255,0.2); color: #fff; border: none; width: 24px; height: 24px;
-            border-radius: 50%; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-        }
-
-        #app-iframe { width: 100%; height: calc(100% - 46px); border: none; background: #fff; }
-
-        /* 가상 키보드 */
-        #vision-keyboard {
-            position: absolute; bottom: 6%; left: 15%; width: 70vw; height: 26vh;
-            background: rgba(30, 30, 30, 0.75);
-            border-radius: 28px; border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
-            z-index: 11; display: none; flex-direction: column; padding: 12px; gap: 8px;
-        }
-        .kb-row { display: flex; width: 100%; height: 23%; gap: 6px; }
-        .kb-key {
-            flex: 1; background: rgba(255,255,255,0.14); border-radius: 10px;
-            color: #fff; display: flex; align-items: center; justify-content: center;
-            font-size: 15px; font-weight: 500;
-        }
-
-        #start-btn {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            z-index: 999; padding: 18px 36px; font-size: 17px; font-weight: 600;
-            color: #fff; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.35);
-            border-radius: 30px; backdrop-filter: blur(25px); cursor: pointer;
-        }
-
-        #status-tag {
-            position: absolute; top: 20px; left: 20px; z-index: 100;
-            background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.9);
-            padding: 8px 16px; border-radius: 20px; font-size: 12px; backdrop-filter: blur(15px);
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #webcam { display: none; }
+        #vr-btn {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            padding: 12px 24px; background: rgba(255,255,255,0.2); color: white;
+            border: 1px solid rgba(255,255,255,0.5); border-radius: 30px;
+            backdrop-filter: blur(10px); font-size: 16px; cursor: pointer; z-index: 10;
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
-    <button id="start-btn" onclick="startVisionOS()">visionOS 시스템 가동</button>
-    <div id="status-tag">시선 및 제스처 센서 대기 중</div>
-    <div id="gaze-reticle"></div>
-
-    <div class="camera-container">
-        <div class="cam-view"><video id="v-left" autoplay playsinline muted></video></div>
-        <div class="cam-view"><video id="v-right" autoplay playsinline muted></video></div>
-    </div>
-
-    <div id="app-window">
-        <div id="window-bar">
-            <span id="window-title">Safari</span>
-            <button id="close-btn" onclick="closeApp()">✕</button>
-        </div>
-        <iframe id="app-iframe" src="about:blank"></iframe>
-    </div>
-
-    <div id="vision-keyboard">
-        <div class="kb-row">
-            <div class="kb-key">Q</div><div class="kb-key">W</div><div class="kb-key">E</div><div class="kb-key">R</div><div class="kb-key">T</div><div class="kb-key">Y</div><div class="kb-key">U</div><div class="kb-key">I</div><div class="kb-key">O</div><div class="kb-key">P</div>
-        </div>
-        <div class="kb-row">
-            <div class="kb-key">A</div><div class="kb-key">S</div><div class="kb-key">D</div><div class="kb-key">F</div><div class="kb-key">G</div><div class="kb-key">H</div><div class="kb-key">J</div><div class="kb-key">K</div><div class="kb-key">L</div>
-        </div>
-        <div class="kb-row">
-            <div class="kb-key">Z</div><div class="kb-key">X</div><div class="kb-key">C</div><div class="kb-key">V</div><div class="kb-key">B</div><div class="kb-key">N</div><div class="kb-key">M</div>
-        </div>
-        <div class="kb-row">
-            <div class="kb-key" style="flex:4">Space</div>
-            <div class="kb-key" onclick="toggleKeyboard(false)">닫기</div>
-        </div>
-    </div>
-
-    <canvas id="render-canvas"></canvas>
+    <button id="vr-btn" onclick="toggleVR()">VR 모드 분할 화면 전환</button>
+    <video id="webcam" playsinline></video>
 
     <script>
-        let scene, cameraLeft, cameraRight, renderer, hands;
-        const appIcons = [];
-        let glassPanel = null;
-        let raycaster, centerVector;
-        let hoveredApp = null;
-        let isPinching = false;
-        let lastPinchTime = 0;
-        let isAppOpen = false;
-        let audioCtx = null;
+        let scene, cameraLeft, cameraRight, renderer;
+        let isVR = false;
+        let windows = [];
+        let cursor;
+        let pinchDetected = false;
+        let grabbedWindow = null; // 현재 손으로 잡고 있는 3D 창 객체
 
-        const videoLeft = document.getElementById('v-left');
-        const videoRight = document.getElementById('v-right');
-        const canvas = document.getElementById('render-canvas');
-        const startBtn = document.getElementById('start-btn');
-        const statusTag = document.getElementById('status-tag');
-        const reticle = document.getElementById('gaze-reticle');
-        const appWindow = document.getElementById('app-window');
-        const appIframe = document.getElementById('app-iframe');
-        const windowTitle = document.getElementById('window-title');
-        const keyboard = document.getElementById('vision-keyboard');
-
-        // 스마트폰 앱 연동 스키마 및 웹 세팅
-        const appsData = [
-            { name: "KakaoTalk", color: 0xfee500, url: "kakaotalk://", isApp: true },
-            { name: "YouTube", color: 0xff0000, url: "youtube://", fallback: "https://m.youtube.com", isApp: true },
-            { name: "Naver", color: 0x03cf5d, url: "naversearchapp://", fallback: "https://m.naver.com", isApp: true },
-            { name: "Instagram", color: 0xe1306c, url: "instagram://", isApp: true },
-            { name: "Phone", color: 0x34c759, url: "tel:", isApp: true },
-            { name: "Safari", color: 0x007aff, url: "https://www.google.com", isApp: false },
-            { name: "Clock", color: 0xffffff, url: "#", isApp: false },
-            { name: "Apple TV", color: 0x1c1c1e, url: "https://tv.apple.com", isApp: false }
-        ];
-
-        function playPinchSound() {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.08);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.08);
-        }
-
-        async function startVisionOS() {
-            startBtn.style.display = 'none';
-            statusTag.style.display = 'block';
-
-            try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                }
-            } catch (e) {}
-
-            await initCamera();
-            initThree();
-            initMediaPipe();
-
-            window.addEventListener('resize', updateLayout);
-            updateLayout();
-            render();
-        }
-
-        async function initCamera() {
-            let stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-            });
-            videoLeft.srcObject = stream;
-            videoRight.srcObject = stream;
-            await videoLeft.play();
-            await videoRight.play();
-        }
-
-        function initThree() {
+        // 1. Three.js 3D 공간 초기화
+        function initScene() {
             scene = new THREE.Scene();
 
-            cameraLeft = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
-            cameraRight = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
-            cameraLeft.position.set(-0.08, 0, 5);
-            cameraRight.position.set(0.08, 0, 5);
+            cameraLeft = new THREE.PerspectiveCamera(75, (window.innerWidth / 2) / window.innerHeight, 0.1, 1000);
+            cameraRight = new THREE.PerspectiveCamera(75, (window.innerWidth / 2) / window.innerHeight, 0.1, 1000);
+            
+            cameraLeft.position.set(-0.03, 0, 0);
+            cameraRight.position.set(0.03, 0, 0);
 
-            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
-            renderer.setClearColor(0x000000, 0);
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
 
-            raycaster = new THREE.Raycaster();
-            centerVector = new THREE.Vector2(0, 0);
+            const light = new THREE.AmbientLight(0xffffff, 0.9);
+            scene.add(light);
 
-            createVisionHome();
+            // 배치할 공간 창
+            createVisionWindow(-1.0, 0, -2, 0x3366ff);
+            createVisionWindow(0, 0, -2, 0xffffff);
+            createVisionWindow(1.0, 0, -2, 0x33cc66);
+
+            // 손 위치 조준점 커서
+            const cursorGeo = new THREE.RingGeometry(0.02, 0.03, 32);
+            const cursorMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, side: THREE.DoubleSide });
+            cursor = new THREE.Mesh(cursorGeo, cursorMat);
+            cursor.position.set(0, 0, -1.2);
+            scene.add(cursor);
         }
 
-        function createVisionHome() {
-            const panelGeo = new THREE.PlaneGeometry(4.4, 2.4);
-            const panelMat = new THREE.MeshBasicMaterial({
-                color: 0x151515, transparent: true, opacity: 0.55, side: THREE.DoubleSide
+        // 2. VisionOS 스타일 유리 창 생성
+        function createVisionWindow(x, y, z, color) {
+            const geometry = new THREE.PlaneGeometry(0.8, 0.55);
+            const material = new THREE.MeshPhongMaterial({
+                color: color,
+                transparent: true,
+                opacity: 0.45,
+                shininess: 80,
+                side: THREE.DoubleSide
             });
-            glassPanel = new THREE.Mesh(panelGeo, panelMat);
-            glassPanel.position.set(0, 0, -1.5);
-            scene.add(glassPanel);
-
-            const cols = 4;
-            const spacingX = 0.95;
-            const spacingY = 0.85;
-
-            appsData.forEach((app, i) => {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-
-                const iconGeo = new THREE.PlaneGeometry(0.68, 0.68);
-                const iconMat = new THREE.MeshBasicMaterial({ color: app.color, side: THREE.DoubleSide });
-                const mesh = new THREE.Mesh(iconGeo, iconMat);
-
-                const posX = (col - 1.5) * spacingX;
-                const posY = 0.4 - (row * spacingY);
-                mesh.position.set(posX, posY, -1.45);
-                mesh.userData = { ...app };
-
-                scene.add(mesh);
-                appIcons.push(mesh);
-            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            windows.push(mesh);
         }
 
-        function updateLayout() {
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-            renderer.setSize(w, h);
-            cameraLeft.aspect = (w / 2) / h;
-            cameraRight.aspect = (w / 2) / h;
-            cameraLeft.updateProjectionMatrix();
-            cameraRight.updateProjectionMatrix();
-        }
-
-        async function render() {
-            requestAnimationFrame(render);
-
-            if (videoLeft.readyState >= 2 && hands) {
-                await hands.send({ image: videoLeft });
-            }
-
-            if (!isAppOpen) {
-                raycaster.setFromCamera(centerVector, cameraLeft);
-                const intersects = raycaster.intersectObjects(appIcons);
-
-                if (intersects.length > 0) {
-                    const hit = intersects[0].object;
-                    if (hoveredApp !== hit) {
-                        if (hoveredApp) hoveredApp.scale.set(1, 1, 1);
-                        hoveredApp = hit;
-                        hoveredApp.scale.set(1.18, 1.18, 1.18);
-                        reticle.classList.add('hover');
-                    }
-                } else {
-                    if (hoveredApp) {
-                        hoveredApp.scale.set(1, 1, 1);
-                        hoveredApp = null;
-                        reticle.classList.remove('hover');
-                    }
-                }
-            }
-
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-            const halfW = w / 2;
-
-            renderer.setScissorTest(true);
-            renderer.setViewport(0, 0, halfW, h);
-            renderer.setScissor(0, 0, halfW, h);
-            renderer.render(scene, cameraLeft);
-
-            renderer.setViewport(halfW, 0, halfW, h);
-            renderer.setScissor(halfW, 0, halfW, h);
-            renderer.render(scene, cameraRight);
-            renderer.setScissorTest(false);
-        }
-
-        function onHandResults(results) {
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                statusTag.innerText = "손 센서 감지됨 (Pinch 준비)";
-                const lm = results.multiHandLandmarks[0];
-
-                const thumbTip = lm[4];
-                const indexTip = lm[8];
-                const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y, thumbTip.z - indexTip.z);
-
-                const now = Date.now();
-                // 손이 화면 아래쪽 및 중앙 하단에 머무는 상황을 지원하도록 인식 파라미터 보정
-                if (distance < 0.06) {
-                    reticle.classList.add('pinch');
-                    if (!isPinching && (now - lastPinchTime > 600)) {
-                        isPinching = true;
-                        lastPinchTime = now;
-                        playPinchSound();
-
-                        if (hoveredApp && !isAppOpen) {
-                            triggerApp(hoveredApp.userData);
-                        }
-                    }
-                } else {
-                    reticle.classList.remove('pinch');
-                    isPinching = false;
-                }
-            } else {
-                statusTag.innerText = "하단을 향해 손을 위치시키세요";
-            }
-        }
-
-        function triggerApp(appData) {
-            if (appData.isApp && appData.url !== "#") {
-                // 스마트폰에 설치된 앱 즉시 오픈
-                window.location.href = appData.url;
-                setTimeout(() => {
-                    if (appData.fallback) {
-                        openWebWindow(appData.name, appData.fallback);
-                    }
-                }, 1000);
-            } else {
-                openWebWindow(appData.name, appData.url);
-            }
-        }
-
-        function openWebWindow(name, url) {
-            isAppOpen = true;
-            windowTitle.innerText = name;
-            glassPanel.visible = false;
-            appIcons.forEach(icon => icon.visible = false);
-
-            if (url && url !== "#") {
-                appIframe.src = url;
-            } else {
-                appIframe.srcdoc = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#fff;font-family:-apple-system, sans-serif;"><h2>${name} App Active</h2></div>`;
-            }
-            appWindow.style.display = 'flex';
-            keyboard.style.display = 'flex';
-        }
-
-        function closeApp() {
-            isAppOpen = false;
-            appWindow.style.display = 'none';
-            keyboard.style.display = 'none';
-            appIframe.src = "about:blank";
-            glassPanel.visible = true;
-            appIcons.forEach(icon => icon.visible = true);
-        }
-
-        function toggleKeyboard(show) {
-            keyboard.style.display = show ? 'flex' : 'none';
-        }
-
-        function initMediaPipe() {
-            hands = new Hands({
+        // 3. MediaPipe 손 트래킹
+        function initHandTracking() {
+            const videoElement = document.getElementById('webcam');
+            const hands = new Hands({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
             });
+
             hands.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 1,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
+
             hands.onResults(onHandResults);
+
+            const cameraUtils = new Camera(videoElement, {
+                onFrame: async () => { await hands.send({ image: videoElement }); },
+                width: 640, height: 480
+            });
+            cameraUtils.start();
         }
+
+        // 4. 위치 이동 및 드래그 앤 드롭 제어
+        function onHandResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // 검지 손가락 끝(8번) 좌표 매핑
+                const indexX = (landmarks[8].x - 0.5) * -2.5;
+                const indexY = (0.5 - landmarks[8].y) * 2.0;
+                cursor.position.set(indexX, indexY, -1.2);
+
+                // 엄지(4번)와 검지(8번) 사이 거리 (핀치 감지)
+                const distance = Math.hypot(
+                    landmarks[4].x - landmarks[8].x,
+                    landmarks[4].y - landmarks[8].y
+                );
+
+                // 핀치 지속 중일 때 (Pinch Down)
+                if (distance < 0.05) {
+                    if (!pinchDetected) {
+                        pinchDetected = true;
+                        cursor.scale.set(0.6, 0.6, 0.6);
+                        startDrag(); // 드래그 시작 시도
+                    }
+
+                    // 창을 집은 상태면 손가락 위치 따라 창 이동
+                    if (grabbedWindow) {
+                        grabbedWindow.position.x = cursor.position.x;
+                        grabbedWindow.position.y = cursor.position.y;
+                    }
+                } 
+                // 핀치 해제 시 (Pinch Up)
+                else {
+                    if (pinchDetected) {
+                        pinchDetected = false;
+                        cursor.scale.set(1, 1, 1);
+                        stopDrag(); // 드래그 종료 및 창 놓기
+                    }
+                }
+            }
+        }
+
+        // 5. 창 잡기 로직
+        function startDrag() {
+            windows.forEach(win => {
+                // 커서 위치와 근접한 창 탐색
+                if (Math.abs(win.position.x - cursor.position.x) < 0.45 &&
+                    Math.abs(win.position.y - cursor.position.y) < 0.35) {
+                    grabbedWindow = win;
+                    grabbedWindow.position.z = -1.8; // 집어 올릴 때 앞으로 살짝 당겨짐
+                    grabbedWindow.material.opacity = 0.7; // 시각적 피드백
+                }
+            });
+        }
+
+        // 6. 창 놓기 로직
+        function stopDrag() {
+            if (grabbedWindow) {
+                grabbedWindow.position.z = -2.0; // 본래 깊이로 돌려놓음
+                grabbedWindow.material.opacity = 0.45;
+                grabbedWindow = null;
+            }
+        }
+
+        // 7. VR 화면 분할
+        function toggleVR() {
+            isVR = !isVR;
+            document.getElementById('vr-btn').style.display = isVR ? 'none' : 'block';
+        }
+
+        // 8. 렌더링 루프
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isVR) {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+
+                renderer.setScissorTest(true);
+
+                // 좌측 눈
+                renderer.setScissor(0, 0, width / 2, height);
+                renderer.setViewport(0, 0, width / 2, height);
+                renderer.render(scene, cameraLeft);
+
+                // 우측 눈
+                renderer.setScissor(width / 2, 0, width / 2, height);
+                renderer.setViewport(width / 2, 0, width / 2, height);
+                renderer.render(scene, cameraRight);
+
+                renderer.setScissorTest(false);
+            } else {
+                renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+                renderer.render(scene, cameraLeft);
+            }
+        }
+
+        window.onload = () => {
+            initScene();
+            initHandTracking();
+            animate();
+        };
+
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            cameraLeft.aspect = (window.innerWidth / 2) / window.innerHeight;
+            cameraRight.aspect = (window.innerWidth / 2) / window.innerHeight;
+            cameraLeft.updateProjectionMatrix();
+            cameraRight.updateProjectionMatrix();
+        });
     </script>
 </body>
 </html>
