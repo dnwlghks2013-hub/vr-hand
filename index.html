@@ -1,38 +1,124 @@
-using UnityEngine;
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>VR Hand Drawing</title>
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #webcam { display: none; }
+    #ui-container {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 999; display: flex; gap: 10px;
+    }
+    button {
+      padding: 12px 20px; font-size: 16px; font-weight: bold;
+      background: #007bff; color: white; border: none; border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
 
-public class VRHandDrawer : MonoBehaviour 
-{
-    public Transform indexTip; // 검지 손가락 끝 오브젝트
-    public GameObject linePrefab;
-    private LineRenderer currentLine;
+  <div id="ui-container">
+    <button onclick="toggleVR()">VR 모드 전환</button>
+    <button onclick="saveCanvas()">그림 저장</button>
+  </div>
 
-    void Update() 
-    {
-        // 손가락이 인식되고 그리기 상태일 때
-        if (IsPinching()) 
-        {
-            if (currentLine == null) 
-            {
-                GameObject lineObj = Instantiate(linePrefab);
-                currentLine = lineObj.GetComponent<LineRenderer>();
-            }
-            AddPoint(indexTip.position);
-        } 
-        else 
-        {
-            currentLine = null;
+  <video id="webcam" playsinline></video>
+
+  <a-scene embedded vr-mode-ui="enabled: true">
+    <a-entity id="rig" position="0 1.6 0">
+      <a-camera id="camera" look-controls></a-camera>
+    </a-entity>
+    
+    <a-sphere id="pen-tip" radius="0.015" color="#FF0055" position="0 0 -1"></a-sphere>
+    <a-sky color="#1A1A1A"></a-sky>
+  </a-scene>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const penTip = document.getElementById('pen-tip');
+    const scene = document.querySelector('a-scene');
+    
+    let isDrawing = false;
+    let currentLine = null;
+
+    // MediaPipe Hands 설정
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    hands.onResults(onResults);
+
+    // 웹캠 연결
+    const cameraUtils = new Camera(videoElement, {
+      onFrame: async () => { await hands.send({image: videoElement}); },
+      width: 640, height: 480
+    });
+    cameraUtils.start();
+
+    function onResults(results) {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        
+        // 검지 끝(8번) 및 엄지 끝(4번)
+        const indexTip = landmarks[8];
+        const thumbTip = landmarks[4];
+
+        // 2D 좌표 -> VR 3D 공간 좌표 변환
+        const x = (0.5 - indexTip.x) * 2;
+        const y = (0.5 - indexTip.y) * 2 + 1.2;
+        const z = -0.5 - (indexTip.z * 2);
+
+        penTip.setAttribute('position', `${x} ${y} ${z}`);
+
+        // 엄지와 검지가 가까워지면(Pinch) 그리기 시작
+        const dist = Math.hypot(indexTip.x - thumbTip.x, indexTip.y - thumbTip.y);
+        if (dist < 0.08) {
+          if (!isDrawing) startNewLine(x, y, z);
+          else addPointToLine(x, y, z);
+        } else {
+          isDrawing = false;
+          currentLine = null;
         }
+      }
     }
 
-    void AddPoint(Vector3 position) 
-    {
-        currentLine.positionCount++;
-        currentLine.SetPosition(currentLine.positionCount - 1, position);
+    function startNewLine(x, y, z) {
+      isDrawing = true;
+      currentLine = document.createElement('a-entity');
+      scene.appendChild(currentLine);
     }
 
-    bool IsPinching() 
-    {
-        // 엄지와 검지 끝 사이의 거리가 일정 값 이하인지 확인
-        return false; 
+    function addPointToLine(x, y, z) {
+      if (!currentLine) return;
+      const point = document.createElement('a-sphere');
+      point.setAttribute('radius', '0.008');
+      point.setAttribute('color', '#00FFCC');
+      point.setAttribute('position', `${x} ${y} ${z}`);
+      currentLine.appendChild(point);
     }
-}
+
+    function toggleVR() {
+      const sceneEl = document.querySelector('a-scene');
+      if (sceneEl.is('vr-mode')) sceneEl.exitVR();
+      else sceneEl.enterVR();
+    }
+
+    function saveCanvas() {
+      const sceneEl = document.querySelector('a-scene');
+      sceneEl.components.screenshot.capture('perspective');
+    }
+  </script>
+</body>
+</html>
