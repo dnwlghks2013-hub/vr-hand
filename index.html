@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vision Pro AR - Final Fix</title>
+    <title>Vision Pro AR - Fixed</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body, html { width: 100vw; height: 100vh; overflow: hidden; background: #000; }
         
-        /* 양쪽 눈 카메라 뷰 */
+        /* 양쪽 눈 카메라 비디오 뷰 */
         .camera-container {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
@@ -20,7 +20,7 @@
             object-fit: cover;
         }
 
-        /* Three.js 3D AR 레이어 */
+        /* Three.js 3D 그래픽 레이어 */
         #render-canvas {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
@@ -95,42 +95,36 @@
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
                 }
-                if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock('landscape').catch(() => {});
-                }
             } catch (e) {}
 
-            // 2. 카메라 시도 및 초기화
+            // 2. 카메라 초기화
             const camSuccess = await initCamera();
             if (!camSuccess) return;
 
             initThree();
             initMediaPipe();
+            
+            // 화면 회전 감지 리스너 등록
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('orientationchange', () => {
+                setTimeout(onWindowResize, 200);
+            });
+
             render();
         }
 
         async function initCamera() {
             let stream = null;
-            
-            // 1차 시도: 후면 카메라
             try {
                 stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } }
+                    video: { facingMode: "environment" }
                 });
-            } catch (e1) {
-                // 2차 시도: 기본 후면 권장
+            } catch (e) {
                 try {
-                    stream = await navigator.mediaDevices.getUserMedia({
-                        video: { facingMode: "environment" }
-                    });
-                } catch (e2) {
-                    // 3차 시도: 모든 가용 카메라
-                    try {
-                        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    } catch (e3) {
-                        showError("카메라를 읽을 수 없습니다. 크롬 앱을 완전히 종료 후 다시 실행해 주세요.");
-                        return false;
-                    }
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                } catch (err) {
+                    showError("카메라 접근 권한을 확인할 수 없습니다. 브라우저 설정을 확인해 주세요.");
+                    return false;
                 }
             }
 
@@ -140,9 +134,7 @@
             try {
                 await videoLeft.play();
                 await videoRight.play();
-            } catch (err) {
-                console.warn("비디오 자동 재생 보정:", err);
-            }
+            } catch (err) {}
             return true;
         }
 
@@ -155,17 +147,20 @@
         function initThree() {
             scene = new THREE.Scene();
             
-            const aspect = (window.innerWidth / 2) / window.innerHeight;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const aspect = (w / 2) / h;
+
             cameraLeft = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
             cameraRight = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
 
-            // 좌우 안구 간격(IPD) 보정
             cameraLeft.position.set(-0.1, 0, 5);
             cameraRight.position.set(0.1, 0, 5);
 
             renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
             renderer.setClearColor(0x000000, 0); // 배경 투명
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(w, h);
 
             createAppGrid();
 
@@ -188,6 +183,23 @@
                 scene.add(line);
                 skeletonLines.push(line);
             });
+        }
+
+        // 화면 회전 및 크기 변경 시 3D 카메라 및 캔버스 비율재계산
+        function onWindowResize() {
+            if (!renderer || !cameraLeft || !cameraRight) return;
+
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            const aspect = (w / 2) / h;
+
+            cameraLeft.aspect = aspect;
+            cameraLeft.updateProjectionMatrix();
+
+            cameraRight.aspect = aspect;
+            cameraRight.updateProjectionMatrix();
+
+            renderer.setSize(w, h);
         }
 
         function createAppGrid() {
@@ -230,12 +242,12 @@
 
             renderer.setScissorTest(true);
 
-            // 좌측 눈 (왼쪽 화면 50%)
+            // 좌측 눈 (왼쪽 50% 화면)
             renderer.setViewport(0, 0, w / 2, h);
             renderer.setScissor(0, 0, w / 2, h);
             renderer.render(scene, cameraLeft);
 
-            // 우측 눈 (오른쪽 화면 50%)
+            // 우측 눈 (오른쪽 50% 화면)
             renderer.setViewport(w / 2, 0, w / 2, h);
             renderer.setScissor(w / 2, 0, w / 2, h);
             renderer.render(scene, cameraRight);
