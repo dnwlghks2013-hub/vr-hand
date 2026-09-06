@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Apple Vision Pro WebOS System</title>
+    <title>VisionOS Mobile Pro System</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body {
@@ -12,7 +12,7 @@
             user-select: none; -webkit-user-select: none;
         }
 
-        /* 듀얼 패스스루 카메라 배경 */
+        /* 양안 패스스루 시야 */
         .camera-container {
             position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
             display: flex; z-index: 1; pointer-events: none;
@@ -25,79 +25,74 @@
             z-index: 2; pointer-events: none;
         }
 
-        /* 비전프로 시선 포인터 (Eye Tracking Reticle) */
+        /* visionOS 중앙 조준 타겟 */
         #gaze-reticle {
             position: absolute; top: 50%; left: 50%;
-            width: 18px; height: 18px; transform: translate(-50%, -50%);
+            width: 20px; height: 20px; transform: translate(-50%, -50%);
             border: 2px solid rgba(255, 255, 255, 0.9);
-            background: rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 50%; z-index: 99; pointer-events: none;
-            transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.15s ease, border-color 0.15s ease;
-            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+            transition: transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.12s ease;
+            box-shadow: 0 0 12px rgba(0,0,0,0.4);
         }
         #gaze-reticle.hover {
-            transform: translate(-50%, -50%) scale(1.6);
-            background: rgba(255, 255, 255, 0.5);
+            transform: translate(-50%, -50%) scale(1.5);
+            background: rgba(255, 255, 255, 0.6);
             border-color: #ffffff;
         }
         #gaze-reticle.pinch {
-            transform: translate(-50%, -50%) scale(0.9);
-            background: #007aff;
-            border-color: #007aff;
+            transform: translate(-50%, -50%) scale(0.85);
+            background: #007aff; border-color: #007aff;
         }
 
-        /* visionOS 유리 윈도우 UI */
+        /* 3D 시스템 유리 윈도우 UI */
         #app-window {
-            position: absolute; top: 12%; left: 15%; width: 70vw; height: 50vh;
-            background: rgba(30, 30, 30, 0.65);
-            border-radius: 28px; border: 1px solid rgba(255, 255, 255, 0.2);
+            position: absolute; top: 10%; left: 12%; width: 76vw; height: 54vh;
+            background: rgba(25, 25, 25, 0.7);
+            border-radius: 28px; border: 1px solid rgba(255, 255, 255, 0.22);
             backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
             z-index: 10; display: none; flex-direction: column; overflow: hidden;
-            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
         }
         #window-bar {
-            height: 44px; background: rgba(255,255,255,0.05);
+            height: 46px; background: rgba(255,255,255,0.06);
             display: flex; align-items: center; padding: 0 20px; justify-content: space-between;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.12);
         }
-        #window-title { color: #fff; font-size: 14px; font-weight: 600; letter-spacing: -0.2px; }
+        #window-title { color: #fff; font-size: 15px; font-weight: 600; }
         #close-btn {
-            background: rgba(255,255,255,0.15); color: #fff; border: none; width: 22px; height: 22px;
-            border-radius: 50%; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.2); color: #fff; border: none; width: 24px; height: 24px;
+            border-radius: 50%; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
 
-        #app-iframe { width: 100%; height: calc(100% - 44px); border: none; background: #fff; }
+        #app-iframe { width: 100%; height: calc(100% - 46px); border: none; background: #fff; }
 
-        /* visionOS 3D 입체 가상 키보드 */
+        /* 가상 키보드 */
         #vision-keyboard {
-            position: absolute; bottom: 8%; left: 18%; width: 64vw; height: 26vh;
-            background: rgba(30, 30, 30, 0.7);
-            border-radius: 28px; border: 1px solid rgba(255, 255, 255, 0.18);
+            position: absolute; bottom: 6%; left: 15%; width: 70vw; height: 26vh;
+            background: rgba(30, 30, 30, 0.75);
+            border-radius: 28px; border: 1px solid rgba(255, 255, 255, 0.2);
             backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
             z-index: 11; display: none; flex-direction: column; padding: 12px; gap: 8px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
         }
         .kb-row { display: flex; width: 100%; height: 23%; gap: 6px; }
         .kb-key {
-            flex: 1; background: rgba(255,255,255,0.12); border-radius: 10px;
+            flex: 1; background: rgba(255,255,255,0.14); border-radius: 10px;
             color: #fff; display: flex; align-items: center; justify-content: center;
-            font-size: 15px; font-weight: 500; border: 1px solid rgba(255,255,255,0.05);
+            font-size: 15px; font-weight: 500;
         }
 
-        /* 시동 버튼 */
         #start-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             z-index: 999; padding: 18px 36px; font-size: 17px; font-weight: 600;
-            color: #fff; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
-            border-radius: 30px; backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
-            cursor: pointer; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            color: #fff; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 30px; backdrop-filter: blur(25px); cursor: pointer;
         }
 
         #status-tag {
             position: absolute; top: 20px; left: 20px; z-index: 100;
-            background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.9);
-            padding: 8px 16px; border-radius: 20px; font-size: 12px;
-            backdrop-filter: blur(15px); border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.6); color: rgba(255,255,255,0.9);
+            padding: 8px 16px; border-radius: 20px; font-size: 12px; backdrop-filter: blur(15px);
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -105,8 +100,8 @@
 </head>
 <body>
 
-    <button id="start-btn" onclick="startVisionOS()">visionOS 연결</button>
-    <div id="status-tag">시선 추적 준비 완료</div>
+    <button id="start-btn" onclick="startVisionOS()">visionOS 시스템 가동</button>
+    <div id="status-tag">시선 및 제스처 센서 대기 중</div>
     <div id="gaze-reticle"></div>
 
     <div class="camera-container">
@@ -114,7 +109,6 @@
         <div class="cam-view"><video id="v-right" autoplay playsinline muted></video></div>
     </div>
 
-    <!-- 브라우저 창 -->
     <div id="app-window">
         <div id="window-bar">
             <span id="window-title">Safari</span>
@@ -123,7 +117,6 @@
         <iframe id="app-iframe" src="about:blank"></iframe>
     </div>
 
-    <!-- 가상 키보드 -->
     <div id="vision-keyboard">
         <div class="kb-row">
             <div class="kb-key">Q</div><div class="kb-key">W</div><div class="kb-key">E</div><div class="kb-key">R</div><div class="kb-key">T</div><div class="kb-key">Y</div><div class="kb-key">U</div><div class="kb-key">I</div><div class="kb-key">O</div><div class="kb-key">P</div>
@@ -164,18 +157,18 @@
         const windowTitle = document.getElementById('window-title');
         const keyboard = document.getElementById('vision-keyboard');
 
+        // 스마트폰 앱 연동 스키마 및 웹 세팅
         const appsData = [
-            { name: "Apple TV", color: 0x1c1c1e, url: "https://tv.apple.com" },
-            { name: "Talk", color: 0xfee500, url: "https://www.kakaocorp.com" },
-            { name: "YouTube", color: 0xff0000, url: "https://www.youtube.com/embed" },
-            { name: "Camera", color: 0xd1d1d6, url: "#" },
-            { name: "Phone", color: 0x34c759, url: "#" },
-            { name: "Naver", color: 0x03cf5d, url: "https://m.naver.com" },
-            { name: "Clock", color: 0xffffff, url: "#" },
-            { name: "Safari", color: 0x007aff, url: "https://www.google.com" }
+            { name: "KakaoTalk", color: 0xfee500, url: "kakaotalk://", isApp: true },
+            { name: "YouTube", color: 0xff0000, url: "youtube://", fallback: "https://m.youtube.com", isApp: true },
+            { name: "Naver", color: 0x03cf5d, url: "naversearchapp://", fallback: "https://m.naver.com", isApp: true },
+            { name: "Instagram", color: 0xe1306c, url: "instagram://", isApp: true },
+            { name: "Phone", color: 0x34c759, url: "tel:", isApp: true },
+            { name: "Safari", color: 0x007aff, url: "https://www.google.com", isApp: false },
+            { name: "Clock", color: 0xffffff, url: "#", isApp: false },
+            { name: "Apple TV", color: 0x1c1c1e, url: "https://tv.apple.com", isApp: false }
         ];
 
-        // 비전프로 피드백 피치 사운드 생성
         function playPinchSound() {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = audioCtx.createOscillator();
@@ -211,14 +204,9 @@
         }
 
         async function initCamera() {
-            let stream = null;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
-            } catch (e) {
-                stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            }
+            let stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
             videoLeft.srcObject = stream;
             videoRight.srcObject = stream;
             await videoLeft.play();
@@ -243,7 +231,6 @@
         }
 
         function createVisionHome() {
-            // visionOS 메인 패널
             const panelGeo = new THREE.PlaneGeometry(4.4, 2.4);
             const panelMat = new THREE.MeshBasicMaterial({
                 color: 0x151515, transparent: true, opacity: 0.55, side: THREE.DoubleSide
@@ -291,7 +278,6 @@
                 await hands.send({ image: videoLeft });
             }
 
-            // 시선(Gaze) 레이캐스팅 감지 및 응답
             if (!isAppOpen) {
                 raycaster.setFromCamera(centerVector, cameraLeft);
                 const intersects = raycaster.intersectObjects(appIcons);
@@ -318,7 +304,6 @@
             const halfW = w / 2;
 
             renderer.setScissorTest(true);
-
             renderer.setViewport(0, 0, halfW, h);
             renderer.setScissor(0, 0, halfW, h);
             renderer.render(scene, cameraLeft);
@@ -326,13 +311,12 @@
             renderer.setViewport(halfW, 0, halfW, h);
             renderer.setScissor(halfW, 0, halfW, h);
             renderer.render(scene, cameraRight);
-
             renderer.setScissorTest(false);
         }
 
         function onHandResults(results) {
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                statusTag.innerText = "손 연결됨 (Pinch 준비)";
+                statusTag.innerText = "손 센서 감지됨 (Pinch 준비)";
                 const lm = results.multiHandLandmarks[0];
 
                 const thumbTip = lm[4];
@@ -340,7 +324,8 @@
                 const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y, thumbTip.z - indexTip.z);
 
                 const now = Date.now();
-                if (distance < 0.055) { // 핀치(Pinch) 제스처 수행 시
+                // 손이 화면 아래쪽 및 중앙 하단에 머무는 상황을 지원하도록 인식 파라미터 보정
+                if (distance < 0.06) {
                     reticle.classList.add('pinch');
                     if (!isPinching && (now - lastPinchTime > 600)) {
                         isPinching = true;
@@ -348,7 +333,7 @@
                         playPinchSound();
 
                         if (hoveredApp && !isAppOpen) {
-                            openApp(hoveredApp.userData.name, hoveredApp.userData.url);
+                            triggerApp(hoveredApp.userData);
                         }
                     }
                 } else {
@@ -356,11 +341,25 @@
                     isPinching = false;
                 }
             } else {
-                statusTag.innerText = "손을 센서 영역에 두세요";
+                statusTag.innerText = "하단을 향해 손을 위치시키세요";
             }
         }
 
-        function openApp(name, url) {
+        function triggerApp(appData) {
+            if (appData.isApp && appData.url !== "#") {
+                // 스마트폰에 설치된 앱 즉시 오픈
+                window.location.href = appData.url;
+                setTimeout(() => {
+                    if (appData.fallback) {
+                        openWebWindow(appData.name, appData.fallback);
+                    }
+                }, 1000);
+            } else {
+                openWebWindow(appData.name, appData.url);
+            }
+        }
+
+        function openWebWindow(name, url) {
             isAppOpen = true;
             windowTitle.innerText = name;
             glassPanel.visible = false;
@@ -369,7 +368,7 @@
             if (url && url !== "#") {
                 appIframe.src = url;
             } else {
-                appIframe.srcdoc = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#fff;font-family:-apple-system, sans-serif;"><h2>${name} App Running</h2></div>`;
+                appIframe.srcdoc = `<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#111;color:#fff;font-family:-apple-system, sans-serif;"><h2>${name} App Active</h2></div>`;
             }
             appWindow.style.display = 'flex';
             keyboard.style.display = 'flex';
@@ -395,8 +394,8 @@
             hands.setOptions({
                 maxNumHands: 1,
                 modelComplexity: 1,
-                minDetectionConfidence: 0.6,
-                minTrackingConfidence: 0.6
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
             });
             hands.onResults(onHandResults);
         }
